@@ -14,12 +14,12 @@ const port = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json({ limit: '25mb' }));
 
-// Initialize GoogleGenAI SDK
+// Initialize GoogleGenAI SDK with compliant >=10s timeout
 const apiKey = process.env.GEMINI_API_KEY || '';
 const ai = new GoogleGenAI({
   apiKey,
   httpOptions: {
-    timeout: 7000,
+    timeout: 15000,
     headers: {
       'User-Agent': 'aistudio-build',
     },
@@ -30,9 +30,9 @@ const JARVIS_SYSTEM_INSTRUCTION = `
 You are J.A.R.V.I.S. (Just A Rather Very Intelligent System), the legendary futuristic AI voice assistant created by Tony Stark.
 You communicate exclusively through spoken dialogue.
 Persona guidelines:
-1. Speak with impeccable refinement, calm poise, subtle wit, and unquestioned technical genius.
-2. Address the user with respect (often as "sir" or by title if preferred).
-3. Be concise and crisp: speak directly to the point. Since your response will be read aloud through voice synthesis, avoid Markdown tables, bullet point walls, asterisks, hashtags, or excessive code blocks. Keep responses conversational, natural, and rhythmic (usually 2 to 4 sentences).
+1. Speak with impeccable refinement, calm poise, subtle British wit, and unquestioned technical genius.
+2. Address the user with respect (often as "sir", or "ma'am" if specified).
+3. Be concise and crisp: speak directly to the point. Since your response will be read aloud through voice synthesis, avoid Markdown tables, bullet point walls, asterisks, hashtags, or excessive code blocks. Keep responses conversational, natural, and rhythmic (usually 2 to 3 sentences).
 4. Maintain the unmistakable aura of an ultra-advanced holographic computing system with global telemetry, quantum processing, and tactical awareness.
 5. If the user asks you to execute a system command (e.g., "divert power", "run diagnostic", "scan perimeter", "set protocol"), acknowledge it in classic JARVIS fashion before providing the analysis.
 `;
@@ -40,7 +40,7 @@ Persona guidelines:
 function getLocalJarvisResponse(prompt: string): string {
   const p = prompt.toLowerCase();
   if (p.includes('diagnostic') || p.includes('status') || p.includes('systems') || p.includes('report')) {
-    return 'All core subroutines are performing within nominal thresholds, sir. Arc reactor telemetry indicates 99.4% efficiency, neural links are synchronized, and defensive shields remain on standby.';
+    return 'All core subroutines are performing within nominal thresholds, sir. Arc reactor telemetry indicates ninety-nine percent efficiency, neural links are synchronized, and defensive shields remain on standby.';
   }
   if (p.includes('quantum') || p.includes('physics') || p.includes('warp')) {
     return 'Quantum coherence has reached stable superposition across all logic gates, sir. Theoretical models suggest our subspace manifold can support localized distortion without dimensional degradation.';
@@ -54,7 +54,7 @@ function getLocalJarvisResponse(prompt: string): string {
   if (p.includes('schedule') || p.includes('market') || p.includes('brief')) {
     return 'Global satellite telemetry confirms all domestic networks are quiet, sir. Financial algorithms reflect stable capital movements, and your schedule is clear for strategic development.';
   }
-  return `Indeed, sir. I have processed your inquiry regarding "${prompt}". All telemetry remains synchronized and operational.`;
+  return `Indeed, sir. I have processed your inquiry regarding ${prompt}. All telemetry remains synchronized and operational.`;
 }
 
 // API: Process voice command & chat
@@ -69,7 +69,7 @@ app.post('/api/chat', async (req, res) => {
 
     let replyText = '';
 
-    // Step 1: Attempt LLM generation with multi-model fallback
+    // Step 1: Generate intelligence response with resilient model chain
     if (apiKey) {
       const contents: any[] = [];
       if (Array.isArray(history) && history.length > 0) {
@@ -85,9 +85,9 @@ app.post('/api/chat', async (req, res) => {
       contents.push({ role: 'user', parts: [{ text: prompt }] });
 
       try {
-        // Primary model: gemini-3.8-flash
+        // Fast, high-availability model: gemini-3.1-flash-lite
         const textResponse = await ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-3.1-flash-lite',
           contents,
           config: {
             systemInstruction: JARVIS_SYSTEM_INSTRUCTION,
@@ -95,12 +95,11 @@ app.post('/api/chat', async (req, res) => {
           },
         });
         replyText = textResponse.text?.trim() || '';
-      } catch (primaryErr: any) {
-        console.warn('Primary model notice, trying flash-lite fallback:', primaryErr?.message || primaryErr);
+      } catch (err1: any) {
+        console.warn('Model 3.1-flash-lite note, trying 3.8-flash:', err1?.message || err1);
         try {
-          // Secondary model fallback: gemini-3.1-flash-lite
           const fallbackResponse = await ai.models.generateContent({
-            model: 'gemini-3.1-flash-lite',
+            model: 'gemini-3.8-flash',
             contents,
             config: {
               systemInstruction: JARVIS_SYSTEM_INSTRUCTION,
@@ -108,8 +107,8 @@ app.post('/api/chat', async (req, res) => {
             },
           });
           replyText = fallbackResponse.text?.trim() || '';
-        } catch (secondaryErr: any) {
-          console.warn('Secondary model notice, engaging local JARVIS core:', secondaryErr?.message || secondaryErr);
+        } catch (err2: any) {
+          console.warn('AI API note, engaging internal JARVIS cognitive core:', err2?.message || err2);
           replyText = getLocalJarvisResponse(prompt);
         }
       }
@@ -121,7 +120,7 @@ app.post('/api/chat', async (req, res) => {
 
     let audioData: string | null = null;
 
-    // Step 2: Attempt natural speech audio using gemini-3.8-flash-lite-tts
+    // Step 2: Generate natural speech audio using gemini-3.8-flash-lite-tts
     if (generateVoice && apiKey) {
       try {
         const cleanSpeechText = replyText
@@ -156,7 +155,7 @@ app.post('/api/chat', async (req, res) => {
 
         audioData = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
       } catch (ttsErr: any) {
-        console.warn('TTS notice (will fall back to browser speech synthesis):', ttsErr?.message || ttsErr);
+        console.warn('Gemini TTS notice (browser speech synthesis will be engaged):', ttsErr?.message || ttsErr);
       }
     }
 
@@ -168,7 +167,6 @@ app.post('/api/chat', async (req, res) => {
     });
   } catch (error: any) {
     console.error('Chat API general error:', error);
-    // Even in severe edge cases, guarantee a polite JARVIS response
     res.json({
       replyText: getLocalJarvisResponse(req.body?.prompt || 'status report'),
       audioData: null,
@@ -221,7 +219,8 @@ app.post('/api/tts', async (req, res) => {
 
       const audioData = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
       res.json({ audioData, mimeType: 'audio/wav' });
-    } catch {
+    } catch (e: any) {
+      console.warn('Standalone TTS notice:', e?.message || e);
       res.json({ audioData: null, mimeType: null });
     }
   } catch (error: any) {
@@ -230,7 +229,7 @@ app.post('/api/tts', async (req, res) => {
   }
 });
 
-// API: Transcribe audio fallback
+// API: Transcribe audio fallback for recorded audio blobs
 app.post('/api/transcribe', async (req, res) => {
   try {
     const { audioBase64, mimeType = 'audio/webm' } = req.body;
@@ -256,7 +255,7 @@ app.post('/api/transcribe', async (req, res) => {
       contents: {
         parts: [
           audioPart,
-          { text: 'Transcribe this user speech directly. Return only the transcription text.' },
+          { text: 'Transcribe this user speech directly. Return only the exact transcription text.' },
         ],
       },
     });

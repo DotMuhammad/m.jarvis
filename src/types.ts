@@ -1,4 +1,10 @@
-export type AssistantState = 'booting' | 'idle' | 'listening' | 'thinking' | 'speaking' | 'muted';
+export type AssistantState =
+  | 'idle'
+  | 'connecting'
+  | 'listening'
+  | 'processing'
+  | 'speaking'
+  | 'error';
 
 export type VoicePersona = 'Fenrir' | 'Zephyr' | 'Puck' | 'Charon' | 'Kore';
 

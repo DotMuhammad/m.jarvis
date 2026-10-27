@@ -5,9 +5,10 @@ import { StartupSequence } from './components/StartupSequence';
 import { FuturisticHUD } from './components/FuturisticHUD';
 
 export default function App() {
+  const [hasStarted, setHasStarted] = useState<boolean>(false);
   const [settings, setSettings] = useState<VoiceSettings>({
     voiceName: 'Fenrir',
-    continuous: false,
+    continuous: true,
     soundFx: true,
     wakeWordEnabled: true,
     theme: 'stark-cyan',
@@ -21,14 +22,20 @@ export default function App() {
     currentResponse,
     isMicActive,
     isMuted,
+    errorMessage,
     telemetry,
     toggleListening,
     sendMessage,
     stopSpeaking,
     toggleMute,
-    finishBooting,
+    startJarvis,
     getVisualizerData,
   } = useJarvisVoice(settings);
+
+  const handleStart = () => {
+    setHasStarted(true);
+    startJarvis();
+  };
 
   const handleReplayAudio = (msg: ChatMessage) => {
     if (msg.text) {
@@ -42,8 +49,8 @@ export default function App() {
 
   return (
     <div className="w-full min-h-screen bg-[#040714] text-slate-100">
-      {state === 'booting' ? (
-        <StartupSequence onComplete={finishBooting} />
+      {!hasStarted ? (
+        <StartupSequence onStart={handleStart} />
       ) : (
         <FuturisticHUD
           state={state}
@@ -54,6 +61,7 @@ export default function App() {
           currentResponse={currentResponse}
           isMicActive={isMicActive}
           isMuted={isMuted}
+          errorMessage={errorMessage}
           onToggleListening={toggleListening}
           onSendMessage={sendMessage}
           onStopSpeaking={stopSpeaking}

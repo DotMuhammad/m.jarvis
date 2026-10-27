@@ -17,6 +17,8 @@ import {
   Radio,
   Activity,
   ShieldCheck,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
 import { soundFx } from '../utils/soundFx';
 
@@ -29,6 +31,7 @@ interface FuturisticHUDProps {
   currentResponse: string;
   isMicActive: boolean;
   isMuted: boolean;
+  errorMessage: string | null;
   onToggleListening: () => void;
   onSendMessage: (text: string) => void;
   onStopSpeaking: () => void;
@@ -48,6 +51,7 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
   currentResponse,
   isMicActive,
   isMuted,
+  errorMessage,
   onToggleListening,
   onSendMessage,
   onStopSpeaking,
@@ -60,7 +64,6 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Suggested voice directives
   const suggestions = [
     'Run full diagnostics on core systems',
     'Summarize quantum computing breakthroughs',
@@ -79,7 +82,13 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
       <header className="relative z-20 flex items-center justify-between gap-8 px-6 py-4 border-b border-cyan-500/20 bg-slate-950/80 backdrop-blur-md">
         {/* Zone 1: Single text element wordmark */}
         <div className="flex items-center gap-3 shrink-0">
-          <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)] animate-pulse" />
+          <div
+            className={`w-2.5 h-2.5 rounded-full ${
+              state === 'error'
+                ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.9)] animate-ping'
+                : 'bg-cyan-400 shadow-[0_0_8px_rgba(6,182,212,0.9)] animate-pulse'
+            }`}
+          />
           <span className="font-hud text-xl font-bold tracking-widest text-white uppercase whitespace-nowrap">
             J.A.R.V.I.S. OS
           </span>
@@ -101,7 +110,7 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
           </span>
           <span className="flex items-center gap-1.5 whitespace-nowrap shrink-0">
             <ShieldCheck className="w-3.5 h-3.5 text-cyan-300" />
-            <span>Protocol: Nominal</span>
+            <span>Protocol: {state === 'error' ? 'ANOMALY' : 'NOMINAL'}</span>
           </span>
         </nav>
 
@@ -131,12 +140,27 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
       </header>
 
       {/* MAIN VIEWPORT: Central Core + Real-Time Spoken Interaction */}
-      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-4 max-w-6xl w-full mx-auto">
+      <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-3 max-w-6xl w-full mx-auto">
+        {/* Error notification banner if error occurs */}
+        {errorMessage && (
+          <div className="w-full max-w-xl mb-3 p-3 rounded border border-rose-500/40 bg-rose-950/70 backdrop-blur-md flex items-center justify-between gap-3 text-rose-200 text-xs shadow-lg animate-fade-in">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+            <button
+              onClick={onToggleListening}
+              className="flex items-center gap-1 px-3 py-1 bg-rose-900/80 hover:bg-rose-800 border border-rose-400/50 rounded font-hud font-semibold text-xs tracking-wider uppercase text-white transition-colors shrink-0"
+            >
+              <RotateCcw className="w-3 h-3" /> Retry
+            </button>
+          </div>
+        )}
+
         {/* Core Layout Grid */}
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-          {/* Left HUD Telemetry Column (Desktop) */}
+          {/* Left HUD Telemetry Column */}
           <div className="hidden lg:flex lg:col-span-3 flex-col gap-4 text-xs font-hud">
-            {/* System Status Panel */}
             <div className="p-4 rounded border border-cyan-500/20 bg-slate-950/60 backdrop-blur-md shadow-lg space-y-3">
               <div className="flex items-center justify-between pb-2 border-b border-white/5">
                 <span className="text-cyan-400 font-semibold tracking-wider uppercase">
@@ -189,7 +213,6 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
               </div>
             </div>
 
-            {/* Quick Directive Suggestions */}
             <div className="p-4 rounded border border-cyan-500/20 bg-slate-950/60 backdrop-blur-md shadow-lg">
               <div className="flex items-center gap-1.5 text-cyan-400 font-semibold tracking-wider uppercase mb-2">
                 <Sparkles className="w-3.5 h-3.5" />
@@ -212,7 +235,7 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
             </div>
           </div>
 
-          {/* Central AI Arc Reactor Core (Centerpiece) */}
+          {/* Central AI Arc Reactor Core */}
           <div className="col-span-1 lg:col-span-6 flex flex-col items-center justify-center">
             <JarvisCore
               state={state}
@@ -224,7 +247,6 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
 
             {/* LIVE SPOKEN TRANSCRIPT & RESPONSE DISPLAY */}
             <div className="w-full max-w-xl mt-2 px-4 py-3 rounded-lg border border-cyan-500/25 bg-slate-950/75 backdrop-blur-md shadow-[0_0_30px_rgba(6,182,212,0.12)] min-h-[96px] flex flex-col justify-center text-center">
-              {/* Interim Real-time Speech Recognition from user */}
               {interimTranscript ? (
                 <div className="animate-pulse">
                   <div className="text-[11px] font-hud uppercase tracking-wider text-cyan-400 font-semibold mb-1">
@@ -234,7 +256,16 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
                     "{interimTranscript}"
                   </p>
                 </div>
-              ) : state === 'thinking' ? (
+              ) : state === 'connecting' ? (
+                <div>
+                  <div className="text-[11px] font-hud uppercase tracking-wider text-amber-300 font-semibold mb-1">
+                    Connecting Acoustic Stream
+                  </div>
+                  <p className="text-sm text-slate-300 font-mono-code">
+                    Initializing microphone transducers...
+                  </p>
+                </div>
+              ) : state === 'processing' ? (
                 <div>
                   <div className="text-[11px] font-hud uppercase tracking-wider text-amber-400 font-semibold mb-1">
                     Neural Processing
@@ -261,7 +292,7 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
             </div>
 
             {/* PRIMARY VOICE CONTROL DOCK */}
-            <div className="flex items-center gap-4 mt-6">
+            <div className="flex items-center gap-4 mt-5">
               {/* Mute Audio Output Toggle */}
               <button
                 onClick={onToggleMute}
@@ -275,7 +306,7 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
                 {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
               </button>
 
-              {/* MAIN VOICE TRIGGER BUTTON (Prominent Center Action) */}
+              {/* MAIN VOICE TRIGGER BUTTON */}
               <button
                 onClick={onToggleListening}
                 className={`relative group p-5 rounded-full border-2 transition-all duration-300 shadow-2xl ${
@@ -285,7 +316,6 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
                 }`}
                 aria-label={isMicActive ? 'Stop Listening' : 'Start Speaking to JARVIS'}
               >
-                {/* Expanding pulse ring when listening */}
                 {isMicActive && (
                   <span className="absolute inset-0 rounded-full border-2 border-cyan-400 animate-ping opacity-60 pointer-events-none" />
                 )}
@@ -320,15 +350,14 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
             </div>
 
             {/* Voice Status Sub-label */}
-            <div className="mt-3 flex items-center gap-2 text-xs font-mono-code text-slate-400">
-              <span className="text-cyan-400">Direct Mic:</span>
+            <div className="mt-2.5 flex items-center gap-2 text-xs font-mono-code text-slate-400">
+              <span className="text-cyan-400">Mic Status:</span>
               <span>{isMicActive ? 'Vocal Capture Live (Speak now)' : 'Push to speak / Standby'}</span>
             </div>
           </div>
 
-          {/* Right Column: Audio Directives & History Quick Peek (Desktop) */}
+          {/* Right Column: Audio Directives & History Quick Peek */}
           <div className="hidden lg:flex lg:col-span-3 flex-col gap-4 text-xs font-hud">
-            {/* Quick Directive Suggestions (Column 2) */}
             <div className="p-4 rounded border border-cyan-500/20 bg-slate-950/60 backdrop-blur-md shadow-lg">
               <div className="flex items-center gap-1.5 text-cyan-400 font-semibold tracking-wider uppercase mb-2">
                 <Sparkles className="w-3.5 h-3.5" />
@@ -350,7 +379,6 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
               </div>
             </div>
 
-            {/* Recent Exchange Snippet */}
             <div className="p-4 rounded border border-cyan-500/20 bg-slate-950/60 backdrop-blur-md shadow-lg">
               <div className="flex items-center justify-between pb-2 border-b border-white/5 mb-2">
                 <span className="text-cyan-400 font-semibold tracking-wider uppercase">
@@ -382,8 +410,8 @@ export const FuturisticHUD: React.FC<FuturisticHUDProps> = ({
           </div>
         </div>
 
-        {/* Mobile Quick Directive Horizontal Strip */}
-        <div className="lg:hidden w-full flex items-center gap-2 overflow-x-auto py-2 mt-4 px-1 no-scrollbar">
+        {/* Mobile Quick Directive Strip */}
+        <div className="lg:hidden w-full flex items-center gap-2 overflow-x-auto py-2 mt-3 px-1 no-scrollbar">
           {suggestions.map((sug, idx) => (
             <button
               key={idx}

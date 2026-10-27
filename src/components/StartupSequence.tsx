@@ -1,102 +1,98 @@
 import React, { useState, useEffect } from 'react';
 import { soundFx } from '../utils/soundFx';
+import { Power, Sparkles, Shield, Volume2 } from 'lucide-react';
 
 interface StartupSequenceProps {
-  onComplete: () => void;
+  onStart: () => void;
 }
 
-export const StartupSequence: React.FC<StartupSequenceProps> = ({ onComplete }) => {
+export const StartupSequence: React.FC<StartupSequenceProps> = ({ onStart }) => {
   const [progress, setProgress] = useState<number>(0);
-  const [logIndex, setLogIndex] = useState<number>(0);
-
-  const logs = [
-    'INITIALIZING STARK TELEMETRY SUBSYSTEMS...',
-    'ESTABLISHING QUANTUM NEURAL INTERFACE...',
-    'CALIBRATING 48KHZ STEREO ACOUSTIC TRANSDUCERS...',
-    'LOADING HIGH-DEFINITION SPEECH SYNTHESIS MATRIX...',
-    'JARVIS PROTOCOL MARK 85 ENGAGED. ALL SYSTEMS NOMINAL.',
-  ];
+  const [isReady, setIsReady] = useState<boolean>(false);
+  const [isInitializing, setIsInitializing] = useState<boolean>(false);
 
   useEffect(() => {
-    soundFx.playStartup();
-
-    const progressInterval = setInterval(() => {
+    const interval = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 100) {
-          clearInterval(progressInterval);
-          setTimeout(onComplete, 400);
+          clearInterval(interval);
+          setIsReady(true);
           return 100;
         }
-        return prev + 4;
+        return prev + 5;
       });
-    }, 60);
+    }, 45);
 
-    const logInterval = setInterval(() => {
-      setLogIndex((prev) => {
-        if (prev < logs.length - 1) {
-          return prev + 1;
-        }
-        return prev;
-      });
-    }, 450);
+    return () => clearInterval(interval);
+  }, []);
 
-    return () => {
-      clearInterval(progressInterval);
-      clearInterval(logInterval);
-    };
-  }, [onComplete]);
+  const handleStartClick = () => {
+    setIsInitializing(true);
+    soundFx.playStartup();
+    onStart();
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-[#030612] flex flex-col items-center justify-center p-6 text-cyan-400 select-none">
       {/* Background cyber grid */}
-      <div className="absolute inset-0 bg-[radial-gradient(#06b6d4_1px,transparent_1px)] [background-size:32px_32px] opacity-15" />
+      <div className="absolute inset-0 bg-[radial-gradient(#06b6d4_1px,transparent_1px)] [background-size:36px_36px] opacity-15" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(6,182,212,0.1),transparent_60%)]" />
 
-      {/* Center Startup Arc */}
+      {/* Center Startup Container */}
       <div className="relative z-10 flex flex-col items-center max-w-lg w-full text-center">
-        {/* Holographic boot ring */}
-        <div className="relative w-28 h-28 mb-8 flex items-center justify-center">
-          <div className="absolute inset-0 rounded-full border border-cyan-500/20 animate-ping opacity-30" />
-          <div className="absolute inset-2 rounded-full border-2 border-t-cyan-400 border-r-cyan-400/30 border-b-transparent border-l-transparent animate-spin-slow" />
-          <div className="absolute inset-5 rounded-full border border-b-cyan-300 border-t-transparent border-l-cyan-300/40 border-r-transparent animate-spin-reverse" />
-          <div className="w-10 h-10 rounded-full bg-cyan-400/20 backdrop-blur-md border border-cyan-300 flex items-center justify-center shadow-[0_0_20px_rgba(6,182,212,0.6)]">
-            <span className="font-hud font-bold text-lg text-white">J</span>
+        {/* Holographic Arc Core */}
+        <div className="relative w-32 h-32 mb-8 flex items-center justify-center">
+          <div className="absolute inset-0 rounded-full border border-cyan-500/20 animate-ping opacity-25" />
+          <div className="absolute inset-1 rounded-full border-2 border-t-cyan-400 border-r-cyan-400/40 border-b-transparent border-l-transparent animate-spin-slow" />
+          <div className="absolute inset-4 rounded-full border border-b-cyan-300 border-t-transparent border-l-cyan-300/40 border-r-transparent animate-spin-reverse" />
+          <div className="w-12 h-12 rounded-full bg-cyan-500/20 backdrop-blur-md border border-cyan-300 flex items-center justify-center shadow-[0_0_30px_rgba(6,182,212,0.7)]">
+            <Sparkles className="w-6 h-6 text-white" />
           </div>
         </div>
 
-        <h1 className="font-hud text-3xl sm:text-4xl font-bold tracking-widest text-slate-100 uppercase mb-2">
+        <h1 className="font-hud text-3xl sm:text-5xl font-bold tracking-widest text-slate-100 uppercase mb-2">
           J.A.R.V.I.S.
         </h1>
-        <p className="font-mono-code text-xs text-cyan-400/80 tracking-widest uppercase mb-8">
-          Voice Operating System // Mark 85
+        <p className="font-mono-code text-xs text-cyan-300 tracking-widest uppercase mb-6 flex items-center gap-2">
+          <span>Stark Industries OS</span>
+          <span className="text-cyan-500">·</span>
+          <span>Mark 85</span>
+          <span className="text-cyan-500">·</span>
+          <span>Voice Matrix</span>
         </p>
 
         {/* Progress Bar */}
-        <div className="w-full bg-slate-900/80 rounded-full h-2 p-0.5 border border-cyan-500/30 mb-4 overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.2)]">
+        <div className="w-full bg-slate-900/90 rounded-full h-2 p-0.5 border border-cyan-500/30 mb-3 overflow-hidden shadow-[0_0_15px_rgba(6,182,212,0.25)]">
           <div
             className="h-full bg-gradient-to-r from-blue-600 via-cyan-400 to-white rounded-full transition-all duration-100 shadow-[0_0_12px_rgba(6,182,212,0.8)]"
             style={{ width: `${progress}%` }}
           />
         </div>
 
-        {/* Diagnostic Status Line */}
-        <div className="h-6 flex items-center justify-center">
-          <p className="font-mono-code text-xs text-slate-400 tracking-wide transition-opacity duration-300">
-            {logs[logIndex]}
-          </p>
+        <div className="flex items-center justify-between w-full text-[11px] font-mono-code text-slate-400 mb-8 px-1">
+          <span>{isReady ? 'SUBSYSTEMS SYNCHRONIZED' : 'CALIBRATING TRANSDUCERS...'}</span>
+          <span className="text-cyan-300 font-bold tabular-nums">{progress}%</span>
         </div>
 
-        {/* Percentage */}
-        <span className="font-hud font-bold text-sm text-cyan-300 mt-2 tabular-nums">
-          {progress}%
-        </span>
-
-        {/* Immediate Access Button */}
+        {/* Big Cinematic Start Button (Ensures direct user gesture for audio & mic) */}
         <button
-          onClick={onComplete}
-          className="mt-8 px-6 py-2 rounded font-hud text-xs font-semibold tracking-wider uppercase text-cyan-200 border border-cyan-500/40 hover:bg-cyan-500/10 hover:border-cyan-400 transition-colors focus:outline-none"
+          onClick={handleStartClick}
+          disabled={isInitializing}
+          className="group relative px-8 py-4 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-hud font-bold text-base sm:text-lg uppercase tracking-widest transition-all duration-300 shadow-[0_0_35px_rgba(6,182,212,0.6)] hover:shadow-[0_0_50px_rgba(6,182,212,0.9)] hover:scale-105 active:scale-95 focus:outline-none flex items-center gap-3"
         >
-          Engage Direct Interface
+          <Power className="w-5 h-5 text-cyan-200 group-hover:rotate-12 transition-transform" />
+          <span>{isInitializing ? 'INITIALIZING VOICE CORE...' : 'START J.A.R.V.I.S.'}</span>
         </button>
+
+        <div className="mt-6 flex items-center gap-4 text-xs font-hud text-slate-400 uppercase tracking-wider">
+          <span className="flex items-center gap-1">
+            <Volume2 className="w-3.5 h-3.5 text-cyan-400" /> Speech Synthesis
+          </span>
+          <span>·</span>
+          <span className="flex items-center gap-1">
+            <Shield className="w-3.5 h-3.5 text-blue-400" /> Microphone Sensor
+          </span>
+        </div>
       </div>
     </div>
   );

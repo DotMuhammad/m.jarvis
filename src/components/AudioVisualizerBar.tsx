@@ -63,7 +63,7 @@ export const AudioVisualizerBar: React.FC<AudioVisualizerBarProps> = ({
         // Ambient rhythm if idle
         if (state === 'idle') {
           val = 15 + Math.sin(Date.now() * 0.003 + i * 0.25) * 12;
-        } else if (state === 'thinking') {
+        } else if (state === 'processing') {
           val = 30 + Math.sin(Date.now() * 0.015 + i * 0.4) * 25 + Math.random() * 15;
         }
 

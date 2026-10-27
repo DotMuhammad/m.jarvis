@@ -22,8 +22,16 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
   const innerAngleRef = useRef<number>(0);
   const pulseRef = useRef<number>(0);
 
-  // Theme color maps
   const getThemePalette = () => {
+    if (state === 'error') {
+      return {
+        primary: '#f43f5e',
+        primaryGlow: 'rgba(244, 63, 94, ',
+        secondary: '#fb7185',
+        coreGradient: ['#fecdd3', '#f43f5e', '#881337'],
+      };
+    }
+
     switch (theme) {
       case 'arc-gold':
         return {
@@ -63,15 +71,13 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Handle high DPI displays
     const dpr = window.devicePixelRatio || 1;
-    const size = Math.min(window.innerWidth * 0.85, 540);
+    const size = Math.min(window.innerWidth * 0.85, 520);
     canvas.width = size * dpr;
     canvas.height = size * dpr;
     canvas.style.width = `${size}px`;
     canvas.style.height = `${size}px`;
 
-    // Particles for cyber dust
     const particles = Array.from({ length: 48 }, () => ({
       radius: Math.random() * (size * 0.44) + 30,
       angle: Math.random() * Math.PI * 2,
@@ -91,7 +97,6 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
 
       const { frequency } = getVisualizerData();
 
-      // Compute average audio level
       let sumFreq = 0;
       for (let i = 0; i < frequency.length; i++) {
         sumFreq += frequency[i];
@@ -99,21 +104,28 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
       const avgAudio = frequency.length ? sumFreq / frequency.length : 0;
       const audioScale = state === 'speaking' ? avgAudio / 90 : state === 'listening' ? avgAudio / 110 : 0.08;
 
-      // Update rotation angles based on state
-      const rotSpeed = state === 'thinking' ? 0.045 : state === 'speaking' ? 0.018 : 0.006;
+      const rotSpeed =
+        state === 'processing'
+          ? 0.045
+          : state === 'connecting'
+          ? 0.025
+          : state === 'speaking'
+          ? 0.018
+          : 0.006;
+
       rotationAngleRef.current += rotSpeed;
       innerAngleRef.current -= rotSpeed * 1.4;
       pulseRef.current += 0.03;
 
-      // 1. Draw Cyber Particle Field
+      // 1. Cyber Particle Field
       particles.forEach((p) => {
-        p.angle += p.speed * (state === 'thinking' ? 3.5 : 1);
+        p.angle += p.speed * (state === 'processing' ? 3.5 : 1);
         const px = centerX + Math.cos(p.angle) * p.radius;
         const py = centerY + Math.sin(p.angle) * p.radius;
 
         ctx.beginPath();
         ctx.arc(px, py, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = `${palette.primaryGlow}${p.alpha * (state === 'thinking' ? 0.9 : 0.5)})`;
+        ctx.fillStyle = `${palette.primaryGlow}${p.alpha * (state === 'processing' ? 0.9 : 0.5)})`;
         ctx.shadowColor = palette.primary;
         ctx.shadowBlur = 8;
         ctx.fill();
@@ -127,7 +139,6 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Outer ticks
       const totalTicks = 72;
       for (let i = 0; i < totalTicks; i++) {
         const tickAngle = (i * (Math.PI * 2)) / totalTicks + rotationAngleRef.current * 0.2;
@@ -160,7 +171,6 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
         ctx.shadowBlur = 12;
         ctx.stroke();
 
-        // Node markers at arc terminals
         const terminalX = centerX + Math.cos(end) * midRadius;
         const terminalY = centerY + Math.sin(end) * midRadius;
         ctx.beginPath();
@@ -179,7 +189,7 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // 5. Radial Audio Equalizer Waveform Bars (Bloom out from reactor core)
+      // 5. Radial Audio Equalizer Waveform Rays
       const numRays = 48;
       const coreRayRadius = size * 0.17;
       for (let i = 0; i < numRays; i++) {
@@ -187,12 +197,11 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
         const freqIdx = Math.floor((i / numRays) * (frequency.length * 0.75));
         const freqVal = frequency[freqIdx] || 0;
 
-        // Dynamic height based on audio level or ambient pulse
         let rayLength = (freqVal / 255) * (size * 0.16) + (Math.sin(pulseRef.current * 2 + i) * 3 + 4);
         if (state === 'idle') {
           rayLength = 6 + Math.sin(pulseRef.current + i * 0.5) * 4;
-        } else if (state === 'thinking') {
-          rayLength = 12 + Math.random() * 14;
+        } else if (state === 'processing') {
+          rayLength = 14 + Math.random() * 16;
         }
 
         const startX = centerX + Math.cos(rayAngle) * coreRayRadius;
@@ -228,10 +237,10 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
       ctx.arc(centerX, centerY, baseCoreRadius * 1.4, 0, Math.PI * 2);
       ctx.fillStyle = coreGrad;
       ctx.shadowColor = palette.primary;
-      ctx.shadowBlur = state === 'speaking' || state === 'thinking' ? 36 : 22;
+      ctx.shadowBlur = state === 'speaking' || state === 'processing' ? 36 : 22;
       ctx.fill();
 
-      // Inner geometric hologram (Nested rotating triangles / hexagon)
+      // Inner geometric hexagon
       const sides = 6;
       ctx.beginPath();
       for (let s = 0; s < sides; s++) {
@@ -246,7 +255,7 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
       ctx.lineWidth = 1.8;
       ctx.stroke();
 
-      // Reactor innermost iris
+      // Center iris
       ctx.beginPath();
       ctx.arc(centerX, centerY, baseCoreRadius * 0.32, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
@@ -267,23 +276,22 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
     };
   }, [state, theme, getVisualizerData]);
 
-  // Status subtitle and color
   const getStatusBadge = () => {
     switch (state) {
+      case 'connecting':
+        return { text: 'INITIALIZING // TRANSDUCER LINK ENGAGED', color: 'text-amber-300 border-amber-500/40 bg-amber-950/40' };
       case 'listening':
-        return { text: 'LISTENING // VOCAL STREAM ENGAGED', color: 'text-cyan-400 border-cyan-500/40 bg-cyan-950/40' };
-      case 'thinking':
-        return { text: 'COMPUTING // PROCESSING DIRECTIVE', color: 'text-amber-400 border-amber-500/40 bg-amber-950/40' };
+        return { text: 'LISTENING // SPEAK DIRECTLY INTO MIC', color: 'text-cyan-400 border-cyan-500/40 bg-cyan-950/40' };
+      case 'processing':
+        return { text: 'COMPUTING // PROCESSING NEURAL QUERY', color: 'text-amber-400 border-amber-500/40 bg-amber-950/40' };
       case 'speaking':
         return { text: 'TRANSMITTING // SPEECH SYNTHESIS', color: 'text-emerald-400 border-emerald-500/40 bg-emerald-950/40' };
-      case 'muted':
-        return { text: 'AUDIO MUTED // SENSORS STANDBY', color: 'text-rose-400 border-rose-500/40 bg-rose-950/40' };
-      case 'booting':
-        return { text: 'INITIALIZING // CALIBRATING SYSTEM', color: 'text-blue-400 border-blue-500/40 bg-blue-950/40' };
+      case 'error':
+        return { text: 'ANOMALY DETECTED // TAP TO RECALIBRATE', color: 'text-rose-400 border-rose-500/40 bg-rose-950/40' };
       case 'idle':
       default:
         return {
-          text: isMicActive ? 'STANDBY // VOCAL DETECTION ACTIVE' : 'ONLINE // CLICK CORE TO SPEAK',
+          text: isMicActive ? 'STANDBY // VOCAL DETECTION ACTIVE' : 'ONLINE // TAP CORE TO SPEAK',
           color: 'text-slate-300 border-slate-700/60 bg-slate-900/50',
         };
     }
@@ -292,24 +300,25 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
   const status = getStatusBadge();
 
   return (
-    <div className="relative flex flex-col items-center justify-center select-none py-4">
+    <div className="relative flex flex-col items-center justify-center select-none py-2">
       {/* Background ambient radial glow */}
       <div
         className={`absolute w-[440px] h-[440px] rounded-full blur-[100px] pointer-events-none transition-all duration-700 opacity-30 ${
           state === 'speaking'
             ? 'bg-cyan-500/40 scale-110'
-            : state === 'thinking'
+            : state === 'processing'
             ? 'bg-amber-500/35 scale-115'
             : state === 'listening'
             ? 'bg-blue-500/40 scale-105'
+            : state === 'error'
+            ? 'bg-rose-500/40 scale-105'
             : 'bg-cyan-600/20'
         }`}
       />
 
       {/* Holographic targeting brackets */}
       <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-        <div className="w-[490px] h-[490px] max-w-[90vw] max-h-[90vw] border border-cyan-500/10 rounded-full relative">
-          {/* 4 Corner Crosshairs */}
+        <div className="w-[480px] h-[480px] max-w-[88vw] max-h-[88vw] border border-cyan-500/10 rounded-full relative">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-2 w-3 h-1 bg-cyan-400/40" />
           <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-2 w-3 h-1 bg-cyan-400/40" />
           <div className="absolute left-0 top-1/2 -translate-y-1/2 -translate-x-2 w-1 h-3 bg-cyan-400/40" />
@@ -324,13 +333,11 @@ export const JarvisCore: React.FC<JarvisCoreProps> = ({
         className="relative group cursor-pointer focus:outline-none z-10 transition-transform duration-300 active:scale-95 hover:scale-[1.02]"
       >
         <canvas ref={canvasRef} className="rounded-full drop-shadow-[0_0_35px_rgba(6,182,212,0.25)]" />
-
-        {/* Hover ring guide */}
         <div className="absolute inset-0 rounded-full border border-cyan-400/0 group-hover:border-cyan-400/30 transition-colors pointer-events-none" />
       </button>
 
-      {/* State Badge with Zero-Pill Aesthetic */}
-      <div className="mt-4 flex items-center gap-2 font-hud tracking-wider text-xs font-semibold px-4 py-1 rounded border backdrop-blur-md transition-colors duration-300 uppercase z-10 shadow-lg">
+      {/* State Badge */}
+      <div className="mt-3 flex items-center gap-2 font-hud tracking-wider text-xs font-semibold px-4 py-1 rounded border backdrop-blur-md transition-colors duration-300 uppercase z-10 shadow-lg">
         <span className={status.color.split(' ')[0]}>{status.text}</span>
       </div>
     </div>
