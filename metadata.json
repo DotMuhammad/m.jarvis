@@ -1,0 +1,6 @@
+{
+  "name": "JARVIS Voice Assistant",
+  "description": "Futuristic cinematic JARVIS voice-first AI assistant with real-time reactive audio visualizer, neural speech synthesis, and futuristic holographic HUD.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
