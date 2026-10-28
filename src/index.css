@@ -10,6 +10,15 @@
   font-family: 'Rajdhani', sans-serif;
 }
 
+.font-urdu {
+  font-family: 'Noto Nastaliq Urdu', 'Noto Sans Arabic', serif;
+  line-height: 1.8;
+}
+
+.font-urdu-clean {
+  font-family: 'Noto Sans Arabic', 'Outfit', sans-serif;
+}
+
 .font-mono-code {
   font-family: 'JetBrains Mono', monospace;
 }

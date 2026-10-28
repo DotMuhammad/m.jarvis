@@ -8,9 +8,10 @@ export default function App() {
   const [hasStarted, setHasStarted] = useState<boolean>(false);
   const [settings, setSettings] = useState<VoiceSettings>({
     voiceName: 'Fenrir',
+    languageMode: 'auto',
     continuous: true,
     soundFx: true,
-    wakeWordEnabled: true,
+    autoSpeak: true,
     theme: 'stark-cyan',
     speechRate: 1.0,
   });
@@ -19,7 +20,10 @@ export default function App() {
     state,
     messages,
     interimTranscript,
+    lastUserQuery,
     currentResponse,
+    currentRomanResponse,
+    currentLanguage,
     isMicActive,
     isMuted,
     errorMessage,
@@ -39,7 +43,7 @@ export default function App() {
 
   const handleReplayAudio = (msg: ChatMessage) => {
     if (msg.text) {
-      sendMessage(`Repeat after me: ${msg.text}`);
+      sendMessage(msg.text);
     }
   };
 
@@ -58,7 +62,10 @@ export default function App() {
           telemetry={telemetry}
           messages={messages}
           interimTranscript={interimTranscript}
+          lastUserQuery={lastUserQuery}
           currentResponse={currentResponse}
+          currentRomanResponse={currentRomanResponse}
+          currentLanguage={currentLanguage}
           isMicActive={isMicActive}
           isMuted={isMuted}
           errorMessage={errorMessage}

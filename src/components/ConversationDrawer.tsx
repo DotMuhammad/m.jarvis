@@ -86,10 +86,15 @@ export const ConversationDrawer: React.FC<ConversationDrawerProps> = ({
                       {isJarvis ? (
                         <span className="font-hud text-xs font-bold text-cyan-400 uppercase tracking-wider flex items-center gap-1">
                           <Bot className="w-3.5 h-3.5" /> J.A.R.V.I.S.
+                          {msg.language && (
+                            <span className="text-[10px] text-cyan-400/80 font-mono-code font-normal ml-1">
+                              [{msg.language}]
+                            </span>
+                          )}
                         </span>
                       ) : (
                         <span className="font-hud text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1">
-                          <User className="w-3.5 h-3.5" /> User Spoken Directive
+                          <User className="w-3.5 h-3.5" /> User Message
                         </span>
                       )}
                     </div>
@@ -98,9 +103,14 @@ export const ConversationDrawer: React.FC<ConversationDrawerProps> = ({
                     </span>
                   </div>
 
-                  <p className="leading-relaxed text-xs sm:text-sm font-normal">
+                  <p className="leading-relaxed text-sm sm:text-base font-urdu-clean font-medium" dir="auto">
                     {msg.text}
                   </p>
+                  {msg.romanText && msg.romanText !== msg.text && (
+                    <p className="text-xs text-cyan-300/80 font-sans mt-1">
+                      {msg.romanText}
+                    </p>
+                  )}
 
                   {isJarvis && (
                     <div className="mt-2.5 flex items-center justify-end">
@@ -111,7 +121,7 @@ export const ConversationDrawer: React.FC<ConversationDrawerProps> = ({
                         }}
                         className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-hud uppercase tracking-wider text-cyan-300 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/30 rounded transition-colors"
                       >
-                        <Volume2 className="w-3 h-3" /> Replay Speech
+                        <Volume2 className="w-3 h-3" /> سنیں (Replay)
                       </button>
                     </div>
                   )}

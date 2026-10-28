@@ -6,14 +6,18 @@ export type AssistantState =
   | 'speaking'
   | 'error';
 
-export type VoicePersona = 'Fenrir' | 'Zephyr' | 'Puck' | 'Charon' | 'Kore';
+export type VoicePersona = 'Kore' | 'Fenrir' | 'Zephyr' | 'Puck' | 'Charon';
 
 export type HudTheme = 'stark-cyan' | 'arc-gold' | 'quantum-emerald' | 'crimson-tactical';
+
+export type LanguageMode = 'auto' | 'ur-PK' | 'en-US';
 
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   text: string;
+  romanText?: string;
+  language?: 'urdu' | 'roman_urdu' | 'english' | 'auto';
   timestamp: string;
   audioData?: string | null;
   duration?: string;
@@ -21,9 +25,10 @@ export interface ChatMessage {
 
 export interface VoiceSettings {
   voiceName: VoicePersona;
+  languageMode: LanguageMode;
   continuous: boolean;
   soundFx: boolean;
-  wakeWordEnabled: boolean;
+  autoSpeak: boolean;
   theme: HudTheme;
   speechRate: number;
 }

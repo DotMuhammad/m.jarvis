@@ -58,7 +58,7 @@ export const StartupSequence: React.FC<StartupSequenceProps> = ({ onStart }) => 
           <span className="text-cyan-500">·</span>
           <span>Mark 85</span>
           <span className="text-cyan-500">·</span>
-          <span>Voice Matrix</span>
+          <span className="font-urdu-clean">پاکستانی اردو وائس</span>
         </p>
 
         {/* Progress Bar */}
@@ -70,27 +70,27 @@ export const StartupSequence: React.FC<StartupSequenceProps> = ({ onStart }) => 
         </div>
 
         <div className="flex items-center justify-between w-full text-[11px] font-mono-code text-slate-400 mb-8 px-1">
-          <span>{isReady ? 'SUBSYSTEMS SYNCHRONIZED' : 'CALIBRATING TRANSDUCERS...'}</span>
+          <span>{isReady ? 'سسٹمز تیار ہیں (ALL SYSTEMS READY)' : 'صوتی نظام کی جانچ (CALIBRATING)...'}</span>
           <span className="text-cyan-300 font-bold tabular-nums">{progress}%</span>
         </div>
 
-        {/* Big Cinematic Start Button (Ensures direct user gesture for audio & mic) */}
+        {/* Big Cinematic Start Button */}
         <button
           onClick={handleStartClick}
           disabled={isInitializing}
           className="group relative px-8 py-4 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-hud font-bold text-base sm:text-lg uppercase tracking-widest transition-all duration-300 shadow-[0_0_35px_rgba(6,182,212,0.6)] hover:shadow-[0_0_50px_rgba(6,182,212,0.9)] hover:scale-105 active:scale-95 focus:outline-none flex items-center gap-3"
         >
           <Power className="w-5 h-5 text-cyan-200 group-hover:rotate-12 transition-transform" />
-          <span>{isInitializing ? 'INITIALIZING VOICE CORE...' : 'START J.A.R.V.I.S.'}</span>
+          <span>{isInitializing ? 'آغاز ہو رہا ہے...' : 'شروع کریں · START J.A.R.V.I.S.'}</span>
         </button>
 
         <div className="mt-6 flex items-center gap-4 text-xs font-hud text-slate-400 uppercase tracking-wider">
-          <span className="flex items-center gap-1">
-            <Volume2 className="w-3.5 h-3.5 text-cyan-400" /> Speech Synthesis
+          <span className="flex items-center gap-1 font-urdu-clean">
+            <Volume2 className="w-3.5 h-3.5 text-cyan-400" /> اردو صوتی معاون
           </span>
           <span>·</span>
           <span className="flex items-center gap-1">
-            <Shield className="w-3.5 h-3.5 text-blue-400" /> Microphone Sensor
+            <Shield className="w-3.5 h-3.5 text-blue-400" /> ur-PK Microphone
           </span>
         </div>
       </div>

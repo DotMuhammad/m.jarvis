@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { AssistantState, ChatMessage, VoiceSettings, TelemetryData } from '../types';
+import { AssistantState, ChatMessage, VoiceSettings, TelemetryData, LanguageMode } from '../types';
 import { soundFx } from '../utils/soundFx';
 
 interface IWindow extends Window {
@@ -11,21 +11,23 @@ export function useJarvisVoice(settings: VoiceSettings) {
   const [state, setState] = useState<AssistantState>('idle');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
+  const [lastUserQuery, setLastUserQuery] = useState<string>('');
   const [currentResponse, setCurrentResponse] = useState<string>('');
+  const [currentRomanResponse, setCurrentRomanResponse] = useState<string>('');
+  const [currentLanguage, setCurrentLanguage] = useState<'urdu' | 'roman_urdu' | 'english'>('english');
   const [isMicActive, setIsMicActive] = useState<boolean>(false);
-  const [isMuted, setIsMuted] = useState<boolean>(false);
+  const [isMuted, setIsMuted] = useState<boolean>(!settings.autoSpeak);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetryData>({
-    cpu: 32,
-    memoryMb: 124,
-    neuralLoad: 38,
+    cpu: 28,
+    memoryMb: 118,
+    neuralLoad: 32,
     frequencyHz: 440,
     dbLevel: -42,
-    pingMs: 22,
-    protocol: 'MARK 85 // NOMINAL',
+    pingMs: 18,
+    protocol: 'MARK 85 // MULTILINGUAL',
   });
 
-  // Audio Context & Analysers
   const audioContextRef = useRef<AudioContext | null>(null);
   const micAnalyserRef = useRef<AnalyserNode | null>(null);
   const outputAnalyserRef = useRef<AnalyserNode | null>(null);
@@ -39,14 +41,23 @@ export function useJarvisVoice(settings: VoiceSettings) {
   const isSpeakingRef = useRef<boolean>(false);
   const isProcessingRef = useRef<boolean>(false);
   const continuousRef = useRef<boolean>(settings.continuous);
+  const languageModeRef = useRef<LanguageMode>(settings.languageMode);
 
   useEffect(() => {
     continuousRef.current = settings.continuous;
   }, [settings.continuous]);
 
   useEffect(() => {
+    languageModeRef.current = settings.languageMode;
+  }, [settings.languageMode]);
+
+  useEffect(() => {
     soundFx.enabled = settings.soundFx;
   }, [settings.soundFx]);
+
+  useEffect(() => {
+    setIsMuted(!settings.autoSpeak);
+  }, [settings.autoSpeak]);
 
   // Ensure and resume AudioContext with user gesture
   const ensureAudioContext = useCallback(async (): Promise<AudioContext | null> => {
@@ -62,12 +73,12 @@ export function useJarvisVoice(settings: VoiceSettings) {
       }
       return audioContextRef.current;
     } catch (e) {
-      console.warn('AudioContext initialization notice:', e);
+      console.warn('AudioContext notice:', e);
       return null;
     }
   }, []);
 
-  // Set up microphone audio stream for visualizer
+  // Request mic stream and create mic analyser for visualizer
   const setupMicStream = useCallback(async (): Promise<boolean> => {
     try {
       const ctx = await ensureAudioContext();
@@ -101,160 +112,13 @@ export function useJarvisVoice(settings: VoiceSettings) {
       const isNotAllowed = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError';
       setErrorMessage(
         isNotAllowed
-          ? 'Microphone permission denied. Please allow microphone access in your browser settings.'
-          : 'Could not access audio device. Please check your microphone connection.'
+          ? 'Microphone access denied. Please click the site settings / address bar icon to allow microphone permissions.'
+          : 'Microphone hardware device not found. Please check your audio inputs.'
       );
       setState('error');
       return false;
     }
   }, [ensureAudioContext]);
-
-  // Clean, audible HTML5 audio playback for Gemini TTS WAV
-  const playAudioData = useCallback(async (base64Audio: string): Promise<void> => {
-    return new Promise(async (resolve) => {
-      try {
-        await ensureAudioContext();
-
-        // Stop any prior audio
-        if (currentAudioElementRef.current) {
-          try {
-            currentAudioElementRef.current.pause();
-            currentAudioElementRef.current.currentTime = 0;
-          } catch {
-            // ignore
-          }
-          currentAudioElementRef.current = null;
-        }
-
-        // Convert base64 to binary ArrayBuffer and create Blob
-        const binaryString = atob(base64Audio);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        const blob = new Blob([bytes], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl);
-        audio.playbackRate = settings.speechRate || 1.0;
-        currentAudioElementRef.current = audio;
-
-        // Try connecting to Web Audio output analyser for visualizer
-        if (audioContextRef.current) {
-          try {
-            if (!outputAnalyserRef.current) {
-              const analyser = audioContextRef.current.createAnalyser();
-              analyser.fftSize = 128;
-              analyser.smoothingTimeConstant = 0.82;
-              analyser.connect(audioContextRef.current.destination);
-              outputAnalyserRef.current = analyser;
-            }
-            const source = audioContextRef.current.createMediaElementSource(audio);
-            source.connect(outputAnalyserRef.current);
-          } catch {
-            // If already connected or CORS, fallback to standard audio playback
-          }
-        }
-
-        isSpeakingRef.current = true;
-        setState('speaking');
-
-        audio.onended = () => {
-          URL.revokeObjectURL(audioUrl);
-          currentAudioElementRef.current = null;
-          isSpeakingRef.current = false;
-          resolve();
-        };
-
-        audio.onerror = (e) => {
-          console.warn('Audio element error during playback, using browser fallback:', e);
-          URL.revokeObjectURL(audioUrl);
-          currentAudioElementRef.current = null;
-          isSpeakingRef.current = false;
-          resolve();
-        };
-
-        await audio.play();
-      } catch (err) {
-        console.warn('Audio playback start exception:', err);
-        isSpeakingRef.current = false;
-        resolve();
-      }
-    });
-  }, [ensureAudioContext, settings.speechRate]);
-
-  // Robust Web Speech Synthesis fallback (with Chrome GC fix and safety timeout)
-  const speakWithBrowser = useCallback((text: string): Promise<void> => {
-    return new Promise((resolve) => {
-      if (typeof window === 'undefined' || !window.speechSynthesis) {
-        resolve();
-        return;
-      }
-
-      try {
-        if (window.speechSynthesis.speaking || window.speechSynthesis.paused) {
-          window.speechSynthesis.cancel();
-        }
-
-        const utterance = new SpeechSynthesisUtterance(text);
-        activeUtteranceRef.current = utterance;
-        utterance.rate = (settings.speechRate || 1.0) * 0.98;
-        utterance.pitch = 0.95;
-
-        const populateVoice = () => {
-          const voices = window.speechSynthesis.getVoices();
-          const preferred =
-            voices.find(
-              (v) =>
-                v.lang.includes('en-GB') ||
-                v.name.includes('British') ||
-                v.name.includes('Daniel') ||
-                v.name.includes('Oliver') ||
-                v.name.includes('George')
-            ) || voices.find((v) => v.lang.startsWith('en'));
-
-          if (preferred) {
-            utterance.voice = preferred;
-          }
-        };
-
-        populateVoice();
-        if (window.speechSynthesis.onvoiceschanged !== undefined) {
-          window.speechSynthesis.onvoiceschanged = populateVoice;
-        }
-
-        isSpeakingRef.current = true;
-        setState('speaking');
-
-        let isDone = false;
-        const finish = () => {
-          if (!isDone) {
-            isDone = true;
-            activeUtteranceRef.current = null;
-            isSpeakingRef.current = false;
-            resolve();
-          }
-        };
-
-        utterance.onend = finish;
-        utterance.onerror = (e) => {
-          console.warn('SpeechSynthesis error:', e);
-          finish();
-        };
-
-        // Safety timeout so JARVIS is never permanently stuck in 'speaking'
-        const estimatedDurationMs = Math.max(3000, text.length * 90);
-        setTimeout(finish, estimatedDurationMs);
-
-        window.speechSynthesis.speak(utterance);
-      } catch (e) {
-        console.warn('speakWithBrowser exception:', e);
-        isSpeakingRef.current = false;
-        resolve();
-      }
-    });
-  }, [settings.speechRate]);
 
   // Stop currently speaking audio immediately
   const stopSpeaking = useCallback(() => {
@@ -283,112 +147,280 @@ export function useJarvisVoice(settings: VoiceSettings) {
     }
   }, [isMicActive]);
 
-  // Send message to AI and speak response aloud
-  const sendMessage = useCallback(async (promptText: string) => {
-    const trimmed = promptText.trim();
-    if (!trimmed || isProcessingRef.current) return;
-
-    isProcessingRef.current = true;
-    soundFx.playProcessing();
-    setState('processing');
-    setInterimTranscript('');
-    setCurrentResponse('Analyzing tactical query...');
-
-    // Temporarily halt speech recognition to avoid capturing AI speech
-    if (speechRecognitionRef.current) {
+  // Play WAV audio data from Gemini Neural TTS
+  const playAudioData = useCallback(async (base64Audio: string): Promise<void> => {
+    return new Promise(async (resolve) => {
       try {
-        speechRecognitionRef.current.abort();
-      } catch {
-        // ignore
+        await ensureAudioContext();
+
+        if (currentAudioElementRef.current) {
+          try {
+            currentAudioElementRef.current.pause();
+            currentAudioElementRef.current.currentTime = 0;
+          } catch {
+            // ignore
+          }
+          currentAudioElementRef.current = null;
+        }
+
+        const binaryString = atob(base64Audio);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const blob = new Blob([bytes], { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(blob);
+        const audio = new Audio(audioUrl);
+        audio.playbackRate = settings.speechRate || 1.0;
+        currentAudioElementRef.current = audio;
+
+        if (audioContextRef.current) {
+          try {
+            if (!outputAnalyserRef.current) {
+              const analyser = audioContextRef.current.createAnalyser();
+              analyser.fftSize = 128;
+              analyser.smoothingTimeConstant = 0.82;
+              analyser.connect(audioContextRef.current.destination);
+              outputAnalyserRef.current = analyser;
+            }
+            const source = audioContextRef.current.createMediaElementSource(audio);
+            source.connect(outputAnalyserRef.current);
+          } catch {
+            // fallback to direct audio
+          }
+        }
+
+        isSpeakingRef.current = true;
+        setState('speaking');
+
+        audio.onended = () => {
+          URL.revokeObjectURL(audioUrl);
+          currentAudioElementRef.current = null;
+          isSpeakingRef.current = false;
+          resolve();
+        };
+
+        audio.onerror = () => {
+          URL.revokeObjectURL(audioUrl);
+          currentAudioElementRef.current = null;
+          isSpeakingRef.current = false;
+          resolve();
+        };
+
+        await audio.play();
+      } catch (err) {
+        console.warn('Audio playback start exception:', err);
+        isSpeakingRef.current = false;
+        resolve();
       }
-    }
+    });
+  }, [ensureAudioContext, settings.speechRate]);
 
-    const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}-user`,
-      role: 'user',
-      text: trimmed,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    };
+  // Multilingual browser speech synthesis fallback
+  const speakWithBrowser = useCallback(
+    (replyText: string, romanText?: string, language: 'urdu' | 'roman_urdu' | 'english' = 'english'): Promise<void> => {
+      return new Promise((resolve) => {
+        if (typeof window === 'undefined' || !window.speechSynthesis) {
+          resolve();
+          return;
+        }
 
-    setMessages((prev) => [...prev, userMsg]);
+        try {
+          if (window.speechSynthesis.speaking || window.speechSynthesis.paused) {
+            window.speechSynthesis.cancel();
+          }
 
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: trimmed,
-          history: messages.map((m) => ({ role: m.role, text: m.text })),
-          voiceName: settings.voiceName,
-          generateVoice: !isMuted,
-        }),
+          const voices = window.speechSynthesis.getVoices();
+          let selectedVoice: SpeechSynthesisVoice | undefined;
+          let textToSpeak = replyText;
+
+          if (language === 'english') {
+            selectedVoice =
+              voices.find((v) => v.lang.includes('en-GB') || v.name.includes('Daniel') || v.name.includes('George')) ||
+              voices.find((v) => v.lang.startsWith('en'));
+            textToSpeak = replyText;
+          } else {
+            // Urdu or Roman Urdu
+            const urduVoice =
+              voices.find((v) => v.lang.startsWith('ur')) ||
+              voices.find((v) => v.lang.startsWith('hi')) ||
+              voices.find((v) => v.name.toLowerCase().includes('urdu'));
+
+            if (urduVoice) {
+              selectedVoice = urduVoice;
+              textToSpeak = replyText;
+            } else {
+              // Phonetic Roman Urdu via natural South Asian or English voice
+              selectedVoice =
+                voices.find((v) => v.lang.includes('en-IN') || v.lang.includes('hi')) ||
+                voices.find((v) => v.lang.startsWith('en'));
+              textToSpeak = romanText || replyText;
+            }
+          }
+
+          const utterance = new SpeechSynthesisUtterance(textToSpeak);
+          activeUtteranceRef.current = utterance;
+          utterance.rate = (settings.speechRate || 1.0) * 0.98;
+          utterance.pitch = language === 'english' ? 0.95 : 0.98;
+
+          if (selectedVoice) {
+            utterance.voice = selectedVoice;
+            utterance.lang = selectedVoice.lang;
+          }
+
+          isSpeakingRef.current = true;
+          setState('speaking');
+
+          let isDone = false;
+          const finish = () => {
+            if (!isDone) {
+              isDone = true;
+              activeUtteranceRef.current = null;
+              isSpeakingRef.current = false;
+              resolve();
+            }
+          };
+
+          utterance.onend = finish;
+          utterance.onerror = finish;
+
+          const estimatedDurationMs = Math.max(2500, textToSpeak.length * 80);
+          setTimeout(finish, estimatedDurationMs);
+
+          window.speechSynthesis.speak(utterance);
+        } catch (e) {
+          console.warn('speakWithBrowser exception:', e);
+          isSpeakingRef.current = false;
+          resolve();
+        }
       });
+    },
+    [settings.speechRate]
+  );
 
-      if (!response.ok) {
-        throw new Error(`Server returned HTTP ${response.status}`);
-      }
+  // Send prompt (both voice and typed) to AI
+  const sendMessage = useCallback(
+    async (promptText: string) => {
+      const trimmed = promptText.trim();
+      if (!trimmed || isProcessingRef.current) return;
 
-      const data = await response.json();
-      const replyText = data.replyText || 'Directive acknowledged, sir.';
-      setCurrentResponse(replyText);
+      isProcessingRef.current = true;
+      soundFx.playProcessing();
+      setState('processing');
+      setLastUserQuery(trimmed);
+      setInterimTranscript('');
+      setCurrentResponse('Processing query...');
+      setCurrentRomanResponse('Thinking...');
 
-      const assistantMsg: ChatMessage = {
-        id: `msg-${Date.now()}-jarvis`,
-        role: 'assistant',
-        text: replyText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        audioData: data.audioData,
-      };
-
-      setMessages((prev) => [...prev, assistantMsg]);
-      soundFx.playResponse();
-
-      // Speak response aloud to user
-      if (!isMuted) {
-        if (data.audioData) {
-          await playAudioData(data.audioData);
-        } else {
-          await speakWithBrowser(replyText);
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.abort();
+        } catch {
+          // ignore
         }
       }
 
-      // Check if continuous listening should be resumed
-      if (continuousRef.current && isMicActive) {
-        // Wait 400ms after speech ends before listening again
-        setTimeout(() => {
-          if (continuousRef.current && isMicActive && !isSpeakingRef.current) {
-            startSpeechRecognition();
-          }
-        }, 400);
-      } else {
-        setState('idle');
-      }
-    } catch (err: any) {
-      console.error('sendMessage failed:', err);
-      const fallbackReply = 'My cognitive matrix encountered a latency spike, sir. Standing by for your directive.';
-      setCurrentResponse(fallbackReply);
+      const userMsg: ChatMessage = {
+        id: `msg-${Date.now()}-user`,
+        role: 'user',
+        text: trimmed,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      };
 
-      setMessages((prev) => [
-        ...prev,
-        {
+      setMessages((prev) => [...prev, userMsg]);
+
+      try {
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: trimmed,
+            history: messages.map((m) => ({ role: m.role, text: m.text })),
+            voiceName: settings.voiceName,
+            generateVoice: !isMuted,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Server returned HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        const replyText = data.replyText || 'Directive acknowledged, sir.';
+        const romanText = data.romanText || replyText;
+        const lang = data.language || 'english';
+
+        setCurrentResponse(replyText);
+        setCurrentRomanResponse(romanText);
+        setCurrentLanguage(lang);
+
+        const assistantMsg: ChatMessage = {
           id: `msg-${Date.now()}-jarvis`,
           role: 'assistant',
-          text: fallbackReply,
+          text: replyText,
+          romanText: romanText,
+          language: lang,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-        },
-      ]);
+          audioData: data.audioData,
+        };
 
-      if (!isMuted) {
-        await speakWithBrowser(fallbackReply);
+        setMessages((prev) => [...prev, assistantMsg]);
+        soundFx.playResponse();
+
+        // Speak aloud automatically
+        if (!isMuted) {
+          if (data.audioData) {
+            await playAudioData(data.audioData);
+          } else {
+            await speakWithBrowser(replyText, romanText, lang);
+          }
+        }
+
+        // Resume continuous listening if active
+        if (continuousRef.current && isMicActive) {
+          setTimeout(() => {
+            if (continuousRef.current && isMicActive && !isSpeakingRef.current) {
+              startSpeechRecognition();
+            }
+          }, 350);
+        } else {
+          setState('idle');
+        }
+      } catch (err: any) {
+        console.error('sendMessage failed:', err);
+        const fallbackReply = 'My computational link encountered a latency spike, sir. Standing by for your directive.';
+        setCurrentResponse(fallbackReply);
+        setCurrentRomanResponse(fallbackReply);
+
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-jarvis`,
+            role: 'assistant',
+            text: fallbackReply,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          },
+        ]);
+
+        if (!isMuted) {
+          await speakWithBrowser(fallbackReply, fallbackReply, 'english');
+        }
+        setState('idle');
+      } finally {
+        isProcessingRef.current = false;
       }
-      setState('idle');
-    } finally {
-      isProcessingRef.current = false;
-    }
-  }, [messages, settings.voiceName, isMuted, isMicActive, playAudioData, speakWithBrowser]);
+    },
+    [messages, settings.voiceName, isMuted, isMicActive, playAudioData, speakWithBrowser]
+  );
 
-  // Start Speech Recognition (or MediaRecorder fallback)
+  // Start Speech Recognition
   const startSpeechRecognition = useCallback(async () => {
+    if (isSpeakingRef.current) {
+      stopSpeaking();
+    }
+
     setState('connecting');
     const micGranted = await setupMicStream();
     if (!micGranted) {
@@ -398,7 +430,6 @@ export function useJarvisVoice(settings: VoiceSettings) {
     const win = window as unknown as IWindow;
     const SpeechRec = win.SpeechRecognition || win.webkitSpeechRecognition;
 
-    // Option A: Browser has SpeechRecognition API
     if (SpeechRec) {
       try {
         if (speechRecognitionRef.current) {
@@ -412,7 +443,10 @@ export function useJarvisVoice(settings: VoiceSettings) {
         const recognition = new SpeechRec();
         recognition.continuous = true;
         recognition.interimResults = true;
-        recognition.lang = 'en-US';
+
+        // Set recognition language: ur-PK understands Urdu and Roman Urdu; en-US for English
+        const activeLangMode = languageModeRef.current;
+        recognition.lang = activeLangMode === 'en-US' ? 'en-US' : 'ur-PK';
         recognition.maxAlternatives = 1;
 
         recognition.onstart = () => {
@@ -442,6 +476,7 @@ export function useJarvisVoice(settings: VoiceSettings) {
           const currentSpeech = final || interim;
           setInterimTranscript(currentSpeech);
 
+          // Fast response: 650ms silence triggers auto-dispatch
           if (currentSpeech.trim().length > 1) {
             if (silenceTimerRef.current) {
               clearTimeout(silenceTimerRef.current);
@@ -453,7 +488,7 @@ export function useJarvisVoice(settings: VoiceSettings) {
               if (queryToSend) {
                 sendMessage(queryToSend);
               }
-            }, 1200);
+            }, 650);
           }
         };
 
@@ -462,9 +497,7 @@ export function useJarvisVoice(settings: VoiceSettings) {
           if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
             setIsMicActive(false);
             setState('error');
-            setErrorMessage('Microphone access denied. Please click the padlock or camera/mic icon in your browser address bar to allow microphone.');
-          } else if (event.error === 'network') {
-            setErrorMessage('Speech service network error. Switched to direct audio buffer.');
+            setErrorMessage('Microphone access denied. Please click the site settings / address bar icon to allow microphone access.');
           }
         };
 
@@ -482,11 +515,11 @@ export function useJarvisVoice(settings: VoiceSettings) {
         recognition.start();
         return;
       } catch (err) {
-        console.warn('SpeechRecognition failed, falling back to MediaRecorder:', err);
+        console.warn('SpeechRecognition error, falling back to MediaRecorder:', err);
       }
     }
 
-    // Option B: MediaRecorder direct capture fallback
+    // MediaRecorder fallback
     if (micStreamRef.current && typeof MediaRecorder !== 'undefined') {
       try {
         recordedAudioChunksRef.current = [];
@@ -523,19 +556,18 @@ export function useJarvisVoice(settings: VoiceSettings) {
         };
 
         mediaRecorderRef.current = recorder;
-        recorder.start(250);
+        recorder.start(200);
         setIsMicActive(true);
         setState('listening');
         soundFx.playListening();
       } catch (mediaRecErr) {
-        console.error('MediaRecorder fallback error:', mediaRecErr);
+        console.error('MediaRecorder error:', mediaRecErr);
         setState('error');
         setErrorMessage('Unable to initialize voice recording in this browser.');
       }
     }
-  }, [setupMicStream, sendMessage]);
+  }, [setupMicStream, sendMessage, stopSpeaking]);
 
-  // Stop Speech Recognition
   const stopSpeechRecognition = useCallback(() => {
     setIsMicActive(false);
     if (silenceTimerRef.current) {
@@ -585,59 +617,62 @@ export function useJarvisVoice(settings: VoiceSettings) {
     });
   }, [stopSpeaking]);
 
-  // Startup Boot Completion & Immediate Welcome Speech
+  // Startup Jarvis
   const startJarvis = useCallback(async () => {
-    // 1. Prime AudioContext & SpeechSynthesis on direct user gesture
     await ensureAudioContext();
     soundFx.playStartup();
 
     setState('idle');
-    const welcome = "All systems operational, sir. Speech synthesis and acoustic channels calibrated. How may I assist you today?";
+    const welcome = "All systems operational, sir. Acoustic channels and speech synthesis online. How may I assist you today?";
     setCurrentResponse(welcome);
+    setCurrentRomanResponse(welcome);
+    setCurrentLanguage('english');
 
     const welcomeMsg: ChatMessage = {
       id: `msg-${Date.now()}-welcome`,
       role: 'assistant',
       text: welcome,
+      romanText: welcome,
+      language: 'english',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     };
     setMessages([welcomeMsg]);
 
-    // 2. Pre-prompt microphone so permissions are settled upfront
     await setupMicStream();
 
-    // 3. Immediately synthesize and play welcome speech
-    try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: welcome, voiceName: settings.voiceName }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.audioData) {
-          await playAudioData(data.audioData);
-          return;
+    if (!isMuted) {
+      try {
+        const res = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: welcome, voiceName: settings.voiceName, language: 'english' }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.audioData) {
+            await playAudioData(data.audioData);
+            return;
+          }
         }
+      } catch {
+        // fallback
       }
-    } catch {
-      // ignore
+      await speakWithBrowser(welcome, welcome, 'english');
     }
-    await speakWithBrowser(welcome);
-  }, [ensureAudioContext, setupMicStream, settings.voiceName, playAudioData, speakWithBrowser]);
+  }, [ensureAudioContext, setupMicStream, settings.voiceName, isMuted, playAudioData, speakWithBrowser]);
 
-  // Heartbeat telemetry
+  // Telemetry heartbeat
   useEffect(() => {
     const interval = setInterval(() => {
       setTelemetry((prev) => ({
         ...prev,
-        cpu: Math.floor(26 + Math.random() * 16),
+        cpu: Math.floor(24 + Math.random() * 14),
         neuralLoad:
           state === 'processing'
-            ? 86 + Math.floor(Math.random() * 10)
+            ? 88 + Math.floor(Math.random() * 8)
             : state === 'speaking'
-            ? 60 + Math.floor(Math.random() * 12)
-            : 32 + Math.floor(Math.random() * 10),
+            ? 58 + Math.floor(Math.random() * 12)
+            : 30 + Math.floor(Math.random() * 8),
         frequencyHz:
           state === 'speaking'
             ? 440 + Math.floor(Math.random() * 400)
@@ -646,18 +681,17 @@ export function useJarvisVoice(settings: VoiceSettings) {
             : 120 + Math.floor(Math.random() * 40),
         dbLevel:
           state === 'listening'
-            ? -20 + Math.floor(Math.random() * 14)
+            ? -18 + Math.floor(Math.random() * 12)
             : state === 'speaking'
-            ? -10 + Math.floor(Math.random() * 8)
+            ? -8 + Math.floor(Math.random() * 6)
             : -60,
-        pingMs: 14 + Math.floor(Math.random() * 8),
+        pingMs: 12 + Math.floor(Math.random() * 6),
       }));
     }, 1200);
 
     return () => clearInterval(interval);
   }, [state]);
 
-  // Read visualizer data from output analyser (when speaking) or mic analyser (when listening)
   const getVisualizerData = useCallback((): { frequency: Uint8Array; timeDomain: Uint8Array } => {
     const emptyFreq = new Uint8Array(64);
     const emptyTime = new Uint8Array(64).fill(128);
@@ -685,7 +719,10 @@ export function useJarvisVoice(settings: VoiceSettings) {
     state,
     messages,
     interimTranscript,
+    lastUserQuery,
     currentResponse,
+    currentRomanResponse,
+    currentLanguage,
     isMicActive,
     isMuted,
     errorMessage,
