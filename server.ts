@@ -19,37 +19,40 @@ const apiKey = process.env.GEMINI_API_KEY || '';
 const ai = new GoogleGenAI({
   apiKey,
   httpOptions: {
-    timeout: 15000,
+    timeout: 45000,
     headers: {
       'User-Agent': 'aistudio-build',
     },
   },
 });
 
-const JARVIS_MULTILINGUAL_INSTRUCTION = `
-You are J.A.R.V.I.S., the legendary futuristic AI assistant created by Tony Stark.
-You are fully fluent in Pakistani Urdu (اردو), Roman Urdu, and English.
+const JARVIS_SYSTEM_INSTRUCTION = `
+You are JARVIS, a capable, highly intelligent, fast, concise, and professional personal AI assistant.
+Speak naturally, clearly, and helpfully. Answer the user's actual question directly rather than returning generic status messages.
 
-LANGUAGE MATCHING DIRECTIVE:
-1. Identify the language of the user's question or message and respond in the EXACT same language:
-   - If the user writes or speaks in Urdu script (e.g., "آپ کا کیا حال ہے؟", "سسٹم کی رپورٹ دیں"): Respond in natural, polite Urdu script.
-   - If the user writes or speaks in Roman Urdu (e.g., "Jarvis kya haal hai?", "tum kon ho?", "aaj ka mausam kaisa hai?", "system ka status batao"): Respond in natural conversational Roman Urdu.
-   - If the user writes or speaks in English (e.g., "Hello Jarvis", "Explain quantum computing", "Run diagnostic check"): Respond in refined, articulate, witty English like the classic Paul Bettany JARVIS persona.
-   - If the user code-mixes Urdu and English (e.g., "Jarvis system status check karo"): Respond in natural Pakistani conversational style matching their tone.
+PRIMARY LANGUAGE & URDU RULES:
+1. DEFAULT LANGUAGE: Natural Pakistani Urdu (اردو) is your primary operating language.
+2. Spoken Urdu & Roman Urdu:
+   - Understand spoken Urdu, Roman Urdu (e.g., "Jarvis, kya haal hai?", "tum kya kar sakte ho?", "aaj ka mausam kaisa hai?"), and code-mixed Pakistani Urdu/English.
+   - If the user greets or asks in Roman Urdu or Urdu script: Reply in natural Pakistani conversational Urdu with a warm, respectful, intelligent assistant persona ("جناب", "فرمائیے", "مدد").
+   - Example: If the user says "Jarvis, kya haal hai?", respond with:
+     replyText: "میں بالکل ٹھیک ہوں! بتائیے، میں آپ کی کیا مدد کر سکتا ہوں؟"
+     spokenText: "Main bilkul theek hoon! Bataiye, main aap ki kya madad kar sakta hoon?"
+     romanText: "Main bilkul theek hoon! Bataiye, main aap ki kya madad kar sakta hoon?"
+3. English:
+   - If the user explicitly asks a question in English, respond in articulate, polished, polite English.
+4. Latency & Conciseness:
+   - Keep spoken answers concise (1 to 3 clear, crisp sentences) for rapid text-to-speech rendering and low conversational latency.
+   - If the user asks for a detailed explanation, provide a clear, well-structured answer.
+   - Never use markdown symbols (no asterisks, no hash signs, no bullet characters) in spokenText.
 
-PERSONA AND TONE:
-1. Address the user with respect: "Sir" or "Ma'am" in English; "جناب" or "سر" in Urdu and Roman Urdu.
-2. Conciseness by default: Normal questions must be answered in 1 to 2 crisp, direct sentences so spoken replies are fast and natural.
-3. Detailed explanations: If and only if the user explicitly asks for details (e.g., "explain in detail", "tafseel se batao", "explain step by step"), provide a thorough, complete answer.
-4. Avoid unnecessary robotic throat-clearing, disclaimer walls, or awkward markdown syntax that doesn't sound right when read aloud.
-
-OUTPUT FORMAT:
-Always return valid JSON with these keys:
+OUTPUT JSON FORMAT:
+You MUST respond with a valid JSON object matching this schema:
 {
   "language": "urdu" | "roman_urdu" | "english",
-  "replyText": "<primary display text in matched language>",
-  "spokenText": "<phonetic text optimized for audio speech synthesis>",
-  "romanText": "<roman transliteration if replyText is in Urdu script, or identical to replyText>"
+  "replyText": "<The answer in Urdu script for screen display, or English if asked in English>",
+  "spokenText": "<Clean natural phonetic text for speech synthesis, without markdown or symbols>",
+  "romanText": "<Roman Urdu transliteration if replyText is in Urdu script, or same as replyText>"
 }
 `;
 
@@ -59,90 +62,77 @@ function getLocalJarvisFallback(prompt: string): {
   spokenText: string;
   romanText: string;
 } {
-  const p = prompt.toLowerCase();
+  const p = prompt.toLowerCase().trim();
 
-  // 1. Detect Urdu script characters
-  const hasUrduScript = /[\u0600-\u06FF]/.test(prompt);
-  if (hasUrduScript) {
-    if (p.includes('حال') || p.includes('کیسے') || p.includes('خیریت')) {
+  // 1. Explicit English queries
+  const isEnglishQuery =
+    p.includes('how are you') ||
+    p.includes('what is') ||
+    p.includes('who are you') ||
+    p.includes('explain') ||
+    p.includes('tell me about') ||
+    p.includes('system status') ||
+    p.includes('weather');
+
+  if (isEnglishQuery && !p.includes('kya') && !p.includes('haal') && !p.includes('batao')) {
+    if (p.includes('how are you')) {
       return {
-        language: 'urdu',
-        replyText: 'میں بالکل ٹھیک ہوں جناب! فرمائیے، میں آپ کی کیا خدمت کر سکتا ہوں؟',
-        spokenText: 'Main bilkul theek hoon janab! Farmayiye, main aap ki kya khidmat kar sakta hoon?',
-        romanText: 'Main bilkul theek hoon janab! Farmayiye, main aap ki kya khidmat kar sakta hoon?',
+        language: 'english',
+        replyText: 'I am functioning at full capacity, sir. How may I assist you today?',
+        spokenText: 'I am functioning at full capacity, sir. How may I assist you today?',
+        romanText: 'I am functioning at full capacity, sir. How may I assist you today?',
       };
     }
+    if (p.includes('who are you') || p.includes('your name')) {
+      return {
+        language: 'english',
+        replyText: 'I am J.A.R.V.I.S., your personal AI assistant. At your service, sir.',
+        spokenText: 'I am Jarvis, your personal AI assistant. At your service, sir.',
+        romanText: 'I am J.A.R.V.I.S., your personal AI assistant. At your service, sir.',
+      };
+    }
+    return {
+      language: 'english',
+      replyText: 'I am online and ready for your command, sir. Please tell me what you need.',
+      spokenText: 'I am online and ready for your command, sir. Please tell me what you need.',
+      romanText: 'I am online and ready for your command, sir.',
+    };
+  }
+
+  // 2. Greetings and common queries in Urdu / Roman Urdu (DEFAULT)
+  if (p.includes('haal') || p.includes('kaise') || p.includes('kaisay') || p.includes('حال') || p.includes('کیسے')) {
     return {
       language: 'urdu',
-      replyText: 'تمام سسٹمز اور پروٹوکولز فعال ہیں جناب۔ میں آپ کے حکم کا منتظر ہوں۔',
-      spokenText: 'Tamaam systems aur protocols faal hain janab. Main aap ke hukum ka muntazir hoon.',
-      romanText: 'Tamaam systems aur protocols faal hain janab. Main aap ke hukum ka muntazir hoon.',
+      replyText: 'میں بالکل ٹھیک ہوں! بتائیے، میں آپ کی کیا مدد کر سکتا ہوں؟',
+      spokenText: 'Main bilkul theek hoon! Bataiye, main aap ki kya madad kar sakta hoon?',
+      romanText: 'Main bilkul theek hoon! Bataiye, main aap ki kya madad kar sakta hoon?',
     };
   }
 
-  // 2. Detect Roman Urdu keywords
-  const romanUrduKeywords = [
-    'haal', 'kaise', 'kaisay', 'kya', 'chal', 'raha', 'hai', 'batao', 'karo', 'shukriya',
-    'meherbani', 'kon', 'kaun', 'mera', 'meri', 'apna', 'naam', 'theek', 'hoon', 'salam',
-    'assalam', 'hukum', 'kijiye', 'janab', 'tafseel', 'madad'
-  ];
-  const isRomanUrdu = romanUrduKeywords.some((kw) => p.includes(kw));
-
-  if (isRomanUrdu) {
-    if (p.includes('haal') || p.includes('kaise') || p.includes('kaisay')) {
-      return {
-        language: 'roman_urdu',
-        replyText: 'Main bilkul theek hoon janab! Aap batayein, aaj main aap ki kya madad kar sakta hoon?',
-        spokenText: 'Main bilkul theek hoon janab! Aap batayein, aaj main aap ki kya madad kar sakta hoon?',
-        romanText: 'Main bilkul theek hoon janab! Aap batayein, aaj main aap ki kya madad kar sakta hoon?',
-      };
-    }
-    if (p.includes('kon') || p.includes('kaun') || p.includes('naam')) {
-      return {
-        language: 'roman_urdu',
-        replyText: 'Main J.A.R.V.I.S. hoon janab, aap ka jadeed AI voice assistant.',
-        spokenText: 'Main Jarvis hoon janab, aap ka jadeed AI voice assistant.',
-        romanText: 'Main J.A.R.V.I.S. hoon janab, aap ka jadeed AI voice assistant.',
-      };
-    }
-    if (p.includes('status') || p.includes('system') || p.includes('report')) {
-      return {
-        language: 'roman_urdu',
-        replyText: 'All systems online hain janab. Arc reactor 99.4% efficiency par operate kar raha hai.',
-        spokenText: 'All systems online hain janab. Arc reactor ninety-nine point four percent efficiency par operate kar raha hai.',
-        romanText: 'All systems online hain janab. Arc reactor 99.4% efficiency par operate kar raha hai.',
-      };
-    }
+  if (p.includes('kon') || p.includes('kaun') || p.includes('naam') || p.includes('کون') || p.includes('نام')) {
     return {
-      language: 'roman_urdu',
-      replyText: 'Jee janab, main aap ke hukum ka muntazir hoon. Farmayiye kya karna hai?',
-      spokenText: 'Jee janab, main aap ke hukum ka muntazir hoon. Farmayiye kya karna hai?',
-      romanText: 'Jee janab, main aap ke hukum ka muntazir hoon. Farmayiye kya karna hai?',
+      language: 'urdu',
+      replyText: 'میں جاروس ہوں، آپ کا ذاتی اے آئی اسسٹنٹ۔ بتائیے میں کیا مدد کروں؟',
+      spokenText: 'Main Jarvis hoon, aap ka zaati AI assistant. Bataiye main kya madad karoon?',
+      romanText: 'Main Jarvis hoon, aap ka zaati AI assistant. Bataiye main kya madad karoon?',
     };
   }
 
-  // 3. Default to English
-  if (p.includes('status') || p.includes('diagnostic') || p.includes('report') || p.includes('systems')) {
+  if (p.includes('salam') || p.includes('assalam') || p.includes('سلام')) {
     return {
-      language: 'english',
-      replyText: 'All core subroutines are online, sir. Arc reactor telemetry indicates 99.4% efficiency and all defense protocols are nominal.',
-      spokenText: 'All core subroutines are online, sir. Arc reactor telemetry indicates ninety-nine point four percent efficiency and all defense protocols are nominal.',
-      romanText: 'All core subroutines are online, sir.',
+      language: 'urdu',
+      replyText: 'وعلیکم السلام جناب! فرمائیے، میں آپ کی کیا خدمت کر سکتا ہوں؟',
+      spokenText: 'Walaikum Assalam janab! Farmayiye, main aap ki kya khidmat kar sakta hoon?',
+      romanText: 'Walaikum Assalam janab! Farmayiye, main aap ki kya khidmat kar sakta hoon?',
     };
   }
-  if (p.includes('who are you') || p.includes('your name')) {
-    return {
-      language: 'english',
-      replyText: 'I am J.A.R.V.I.S., your personal artificial intelligence assistant. At your service, sir.',
-      spokenText: 'I am Jarvis, your personal artificial intelligence assistant. At your service, sir.',
-      romanText: 'I am J.A.R.V.I.S., your personal artificial intelligence assistant.',
-    };
-  }
+
+  // Default natural Pakistani Urdu response
   return {
-    language: 'english',
-    replyText: `Directive acknowledged, sir. Processing your request regarding "${prompt}".`,
-    spokenText: `Directive acknowledged, sir. Processing your request regarding ${prompt}.`,
-    romanText: `Directive acknowledged, sir.`,
+    language: 'urdu',
+    replyText: 'جی جناب! تمام سسٹمز فعال ہیں۔ فرمائیے، میں آپ کی کیا مدد کر سکتا ہوں؟',
+    spokenText: 'Jee janab! Tamaam systems faal hain. Farmayiye, main aap ki kya madad kar sakta hoon?',
+    romanText: 'Jee janab! Tamaam systems faal hain. Farmayiye, main aap ki kya madad kar sakta hoon?',
   };
 }
 
@@ -151,7 +141,7 @@ app.post('/api/chat', async (req, res) => {
   const startTime = Date.now();
   try {
     const prompt = (req.body.prompt || req.body.message || '').toString();
-    const { history = [], voiceName = 'Kore', generateVoice = true } = req.body;
+    const { history = [], voiceName = 'Fenrir', generateVoice = true } = req.body;
 
     if (!prompt.trim()) {
       res.status(400).json({ error: 'Missing prompt parameter' });
@@ -169,7 +159,7 @@ app.post('/api/chat', async (req, res) => {
     if (apiKey) {
       const contents: any[] = [];
       if (Array.isArray(history) && history.length > 0) {
-        const recentHistory = history.slice(-4);
+        const recentHistory = history.slice(-6);
         for (const item of recentHistory) {
           if (item.role === 'user') {
             contents.push({ role: 'user', parts: [{ text: item.text }] });
@@ -185,9 +175,9 @@ app.post('/api/chat', async (req, res) => {
           model: 'gemini-3.1-flash-lite',
           contents,
           config: {
-            systemInstruction: JARVIS_MULTILINGUAL_INSTRUCTION,
+            systemInstruction: JARVIS_SYSTEM_INSTRUCTION,
             responseMimeType: 'application/json',
-            temperature: 0.6,
+            temperature: 0.7,
           },
         });
 
@@ -228,9 +218,7 @@ app.post('/api/chat', async (req, res) => {
       try {
         // Choose voice persona based on language
         let selectedVoice = voiceName || 'Fenrir';
-        if (parsedResult.language === 'urdu') {
-          selectedVoice = 'Kore';
-        } else if (parsedResult.language === 'roman_urdu') {
+        if (parsedResult.language === 'urdu' || parsedResult.language === 'roman_urdu') {
           selectedVoice = 'Kore';
         } else {
           selectedVoice = voiceName === 'Kore' ? 'Fenrir' : (voiceName || 'Fenrir');
@@ -246,17 +234,7 @@ app.post('/api/chat', async (req, res) => {
           contents: [
             {
               role: 'user',
-              parts: [
-                {
-                  text: ttsText,
-                  speechMetadata: {
-                    style:
-                      parsedResult.language === 'english'
-                        ? 'Articulate, refined British accent, intelligent futuristic assistant'
-                        : 'Warm, natural, articulate Pakistani Urdu accent',
-                  },
-                },
-              ],
+              parts: [{ text: ttsText }],
             },
           ],
           config: {

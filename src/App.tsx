@@ -7,8 +7,8 @@ import { FuturisticHUD } from './components/FuturisticHUD';
 export default function App() {
   const [hasStarted, setHasStarted] = useState<boolean>(false);
   const [settings, setSettings] = useState<VoiceSettings>({
-    voiceName: 'Fenrir',
-    languageMode: 'auto',
+    voiceName: 'Kore',
+    languageMode: 'ur-PK',
     continuous: true,
     soundFx: true,
     autoSpeak: true,

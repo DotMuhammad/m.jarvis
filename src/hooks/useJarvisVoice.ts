@@ -12,12 +12,13 @@ export function useJarvisVoice(settings: VoiceSettings) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [interimTranscript, setInterimTranscript] = useState<string>('');
   const [lastUserQuery, setLastUserQuery] = useState<string>('');
-  const [currentResponse, setCurrentResponse] = useState<string>('');
-  const [currentRomanResponse, setCurrentRomanResponse] = useState<string>('');
-  const [currentLanguage, setCurrentLanguage] = useState<'urdu' | 'roman_urdu' | 'english'>('english');
+  const [currentResponse, setCurrentResponse] = useState<string>('تمام سسٹمز فعال ہیں۔ فرمائیے، میں آپ کی کیا مدد کر سکتا ہوں؟');
+  const [currentRomanResponse, setCurrentRomanResponse] = useState<string>('Tamaam systems faal hain. Farmayiye, main aap ki kya madad kar sakta hoon?');
+  const [currentLanguage, setCurrentLanguage] = useState<'urdu' | 'roman_urdu' | 'english'>('urdu');
   const [isMicActive, setIsMicActive] = useState<boolean>(false);
   const [isMuted, setIsMuted] = useState<boolean>(!settings.autoSpeak);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [browserVoices, setBrowserVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [telemetry, setTelemetry] = useState<TelemetryData>({
     cpu: 28,
     memoryMb: 118,
@@ -25,23 +26,24 @@ export function useJarvisVoice(settings: VoiceSettings) {
     frequencyHz: 440,
     dbLevel: -42,
     pingMs: 18,
-    protocol: 'MARK 85 // MULTILINGUAL',
+    protocol: 'MARK 85 // URDU VOICE OS',
   });
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const micAnalyserRef = useRef<AnalyserNode | null>(null);
   const outputAnalyserRef = useRef<AnalyserNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
+  const currentBufferSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const currentAudioElementRef = useRef<HTMLAudioElement | null>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const speechRecognitionRef = useRef<any>(null);
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedAudioChunksRef = useRef<Blob[]>([]);
+  const lastDispatchedTextRef = useRef<string>('');
   const isSpeakingRef = useRef<boolean>(false);
   const isProcessingRef = useRef<boolean>(false);
   const continuousRef = useRef<boolean>(settings.continuous);
   const languageModeRef = useRef<LanguageMode>(settings.languageMode);
+  const startSpeechRecognitionRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     continuousRef.current = settings.continuous;
@@ -59,11 +61,31 @@ export function useJarvisVoice(settings: VoiceSettings) {
     setIsMuted(!settings.autoSpeak);
   }, [settings.autoSpeak]);
 
+  // Load browser speech synthesis voices asynchronously
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      const updateVoices = () => {
+        try {
+          const v = window.speechSynthesis.getVoices();
+          if (v && v.length > 0) {
+            setBrowserVoices(v);
+          }
+        } catch {
+          // ignore
+        }
+      };
+      updateVoices();
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+    }
+  }, []);
+
   // Ensure and resume AudioContext with user gesture
   const ensureAudioContext = useCallback(async (): Promise<AudioContext | null> => {
     try {
       if (!audioContextRef.current) {
-        const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        const AudioCtx =
+          window.AudioContext ||
+          (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         if (AudioCtx) {
           audioContextRef.current = new AudioCtx();
         }
@@ -73,7 +95,7 @@ export function useJarvisVoice(settings: VoiceSettings) {
       }
       return audioContextRef.current;
     } catch (e) {
-      console.warn('AudioContext notice:', e);
+      console.warn('AudioContext initialization note:', e);
       return null;
     }
   }, []);
@@ -123,6 +145,19 @@ export function useJarvisVoice(settings: VoiceSettings) {
   // Stop currently speaking audio immediately
   const stopSpeaking = useCallback(() => {
     soundFx.playClick();
+
+    // 1. Stop Web Audio Buffer Source Node
+    if (currentBufferSourceRef.current) {
+      try {
+        currentBufferSourceRef.current.stop();
+        currentBufferSourceRef.current.disconnect();
+      } catch {
+        // ignore
+      }
+      currentBufferSourceRef.current = null;
+    }
+
+    // 2. Stop HTML Audio fallback
     if (currentAudioElementRef.current) {
       try {
         currentAudioElementRef.current.pause();
@@ -133,94 +168,141 @@ export function useJarvisVoice(settings: VoiceSettings) {
       currentAudioElementRef.current = null;
     }
 
+    // 3. Stop SpeechSynthesis
     if (typeof window !== 'undefined' && window.speechSynthesis) {
-      window.speechSynthesis.cancel();
+      try {
+        window.speechSynthesis.cancel();
+      } catch {
+        // ignore
+      }
     }
 
     activeUtteranceRef.current = null;
     isSpeakingRef.current = false;
+    isProcessingRef.current = false;
 
     if (continuousRef.current && isMicActive) {
       setState('listening');
+      startSpeechRecognitionRef.current?.();
     } else {
       setState('idle');
     }
   }, [isMicActive]);
 
-  // Play WAV audio data from Gemini Neural TTS
-  const playAudioData = useCallback(async (base64Audio: string): Promise<void> => {
-    return new Promise(async (resolve) => {
-      try {
-        await ensureAudioContext();
+  // Play WAV audio data from Gemini Neural TTS with Web Audio API
+  const playAudioData = useCallback(
+    async (base64Audio: string): Promise<void> => {
+      return new Promise(async (resolve) => {
+        try {
+          const ctx = await ensureAudioContext();
 
-        if (currentAudioElementRef.current) {
-          try {
-            currentAudioElementRef.current.pause();
-            currentAudioElementRef.current.currentTime = 0;
-          } catch {
-            // ignore
-          }
-          currentAudioElementRef.current = null;
-        }
-
-        const binaryString = atob(base64Audio);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-
-        const blob = new Blob([bytes], { type: 'audio/wav' });
-        const audioUrl = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl);
-        audio.playbackRate = settings.speechRate || 1.0;
-        currentAudioElementRef.current = audio;
-
-        if (audioContextRef.current) {
-          try {
-            if (!outputAnalyserRef.current) {
-              const analyser = audioContextRef.current.createAnalyser();
-              analyser.fftSize = 128;
-              analyser.smoothingTimeConstant = 0.82;
-              analyser.connect(audioContextRef.current.destination);
-              outputAnalyserRef.current = analyser;
+          // Stop any currently playing audio
+          if (currentBufferSourceRef.current) {
+            try {
+              currentBufferSourceRef.current.stop();
+              currentBufferSourceRef.current.disconnect();
+            } catch {
+              // ignore
             }
-            const source = audioContextRef.current.createMediaElementSource(audio);
-            source.connect(outputAnalyserRef.current);
-          } catch {
-            // fallback to direct audio
+            currentBufferSourceRef.current = null;
           }
+          if (currentAudioElementRef.current) {
+            try {
+              currentAudioElementRef.current.pause();
+              currentAudioElementRef.current.currentTime = 0;
+            } catch {
+              // ignore
+            }
+            currentAudioElementRef.current = null;
+          }
+
+          // Decode base64 to binary ArrayBuffer
+          const binaryString = atob(base64Audio);
+          const len = binaryString.length;
+          const bytes = new Uint8Array(len);
+          for (let i = 0; i < len; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+
+          // Primary Path: Native Web Audio API decoding (synchronized with analyser)
+          if (ctx) {
+            try {
+              // Create a fresh copy of buffer for decodeAudioData
+              const bufferCopy = bytes.buffer.slice(0);
+              const audioBuffer = await ctx.decodeAudioData(bufferCopy);
+
+              if (!outputAnalyserRef.current) {
+                const analyser = ctx.createAnalyser();
+                analyser.fftSize = 128;
+                analyser.smoothingTimeConstant = 0.82;
+                analyser.connect(ctx.destination);
+                outputAnalyserRef.current = analyser;
+              }
+
+              const source = ctx.createBufferSource();
+              source.buffer = audioBuffer;
+              source.playbackRate.value = settings.speechRate || 1.0;
+              source.connect(outputAnalyserRef.current);
+              currentBufferSourceRef.current = source;
+
+              isSpeakingRef.current = true;
+              setState('speaking');
+
+              let resolved = false;
+              const finish = () => {
+                if (!resolved) {
+                  resolved = true;
+                  currentBufferSourceRef.current = null;
+                  isSpeakingRef.current = false;
+                  resolve();
+                }
+              };
+
+              source.onended = finish;
+              source.start(0);
+              return;
+            } catch (decodeErr) {
+              console.warn('Web Audio decode failed, falling back to HTML5 Audio element:', decodeErr);
+            }
+          }
+
+          // Fallback Path: HTML5 Audio
+          const blob = new Blob([bytes], { type: 'audio/wav' });
+          const audioUrl = URL.createObjectURL(blob);
+          const audio = new Audio(audioUrl);
+          audio.playbackRate = settings.speechRate || 1.0;
+          currentAudioElementRef.current = audio;
+
+          isSpeakingRef.current = true;
+          setState('speaking');
+
+          let isResolved = false;
+          const finishAudio = () => {
+            if (!isResolved) {
+              isResolved = true;
+              URL.revokeObjectURL(audioUrl);
+              currentAudioElementRef.current = null;
+              isSpeakingRef.current = false;
+              resolve();
+            }
+          };
+
+          audio.onended = finishAudio;
+          audio.onerror = finishAudio;
+          await audio.play();
+        } catch (err) {
+          console.warn('Audio playback exception:', err);
+          isSpeakingRef.current = false;
+          resolve();
         }
-
-        isSpeakingRef.current = true;
-        setState('speaking');
-
-        audio.onended = () => {
-          URL.revokeObjectURL(audioUrl);
-          currentAudioElementRef.current = null;
-          isSpeakingRef.current = false;
-          resolve();
-        };
-
-        audio.onerror = () => {
-          URL.revokeObjectURL(audioUrl);
-          currentAudioElementRef.current = null;
-          isSpeakingRef.current = false;
-          resolve();
-        };
-
-        await audio.play();
-      } catch (err) {
-        console.warn('Audio playback start exception:', err);
-        isSpeakingRef.current = false;
-        resolve();
-      }
-    });
-  }, [ensureAudioContext, settings.speechRate]);
+      });
+    },
+    [ensureAudioContext, settings.speechRate]
+  );
 
   // Multilingual browser speech synthesis fallback
   const speakWithBrowser = useCallback(
-    (replyText: string, romanText?: string, language: 'urdu' | 'roman_urdu' | 'english' = 'english'): Promise<void> => {
+    (replyText: string, romanText?: string, language: 'urdu' | 'roman_urdu' | 'english' = 'urdu'): Promise<void> => {
       return new Promise((resolve) => {
         if (typeof window === 'undefined' || !window.speechSynthesis) {
           resolve();
@@ -232,7 +314,7 @@ export function useJarvisVoice(settings: VoiceSettings) {
             window.speechSynthesis.cancel();
           }
 
-          const voices = window.speechSynthesis.getVoices();
+          const voices = browserVoices.length > 0 ? browserVoices : window.speechSynthesis.getVoices();
           let selectedVoice: SpeechSynthesisVoice | undefined;
           let textToSpeak = replyText;
 
@@ -245,16 +327,15 @@ export function useJarvisVoice(settings: VoiceSettings) {
             // Urdu or Roman Urdu
             const urduVoice =
               voices.find((v) => v.lang.startsWith('ur')) ||
-              voices.find((v) => v.lang.startsWith('hi')) ||
               voices.find((v) => v.name.toLowerCase().includes('urdu'));
 
             if (urduVoice) {
               selectedVoice = urduVoice;
               textToSpeak = replyText;
             } else {
-              // Phonetic Roman Urdu via natural South Asian or English voice
+              // Browser lacks native Urdu voice: speak phonetic Roman Urdu via South Asian / English voice
               selectedVoice =
-                voices.find((v) => v.lang.includes('en-IN') || v.lang.includes('hi')) ||
+                voices.find((v) => v.lang.includes('hi') || v.lang.includes('en-IN')) ||
                 voices.find((v) => v.lang.startsWith('en'));
               textToSpeak = romanText || replyText;
             }
@@ -262,8 +343,8 @@ export function useJarvisVoice(settings: VoiceSettings) {
 
           const utterance = new SpeechSynthesisUtterance(textToSpeak);
           activeUtteranceRef.current = utterance;
-          utterance.rate = (settings.speechRate || 1.0) * 0.98;
-          utterance.pitch = language === 'english' ? 0.95 : 0.98;
+          utterance.rate = (settings.speechRate || 1.0) * 0.96;
+          utterance.pitch = language === 'english' ? 0.95 : 1.0;
 
           if (selectedVoice) {
             utterance.voice = selectedVoice;
@@ -297,7 +378,7 @@ export function useJarvisVoice(settings: VoiceSettings) {
         }
       });
     },
-    [settings.speechRate]
+    [browserVoices, settings.speechRate]
   );
 
   // Send prompt (both voice and typed) to AI
@@ -306,14 +387,22 @@ export function useJarvisVoice(settings: VoiceSettings) {
       const trimmed = promptText.trim();
       if (!trimmed || isProcessingRef.current) return;
 
+      // Prevent duplicate immediate dispatches of the same phrase
+      if (lastDispatchedTextRef.current === trimmed && Date.now() - (lastDispatchedTextRef as any).lastTime < 2000) {
+        return;
+      }
+      lastDispatchedTextRef.current = trimmed;
+      (lastDispatchedTextRef as any).lastTime = Date.now();
+
       isProcessingRef.current = true;
       soundFx.playProcessing();
       setState('processing');
       setLastUserQuery(trimmed);
       setInterimTranscript('');
-      setCurrentResponse('Processing query...');
-      setCurrentRomanResponse('Thinking...');
+      setCurrentResponse('پراسیسنگ جاری ہے...');
+      setCurrentRomanResponse('Processing query...');
 
+      // Abort speech recognition during processing to prevent feedback
       if (speechRecognitionRef.current) {
         try {
           speechRecognitionRef.current.abort();
@@ -338,7 +427,7 @@ export function useJarvisVoice(settings: VoiceSettings) {
           body: JSON.stringify({
             prompt: trimmed,
             history: messages.map((m) => ({ role: m.role, text: m.text })),
-            voiceName: settings.voiceName,
+            voiceName: settings.voiceName || 'Kore',
             generateVoice: !isMuted,
           }),
         });
@@ -348,9 +437,9 @@ export function useJarvisVoice(settings: VoiceSettings) {
         }
 
         const data = await response.json();
-        const replyText = data.replyText || 'Directive acknowledged, sir.';
+        const replyText = data.replyText || 'جی جناب، میں آپ کی بات سمجھ گیا ہوں۔';
         const romanText = data.romanText || replyText;
-        const lang = data.language || 'english';
+        const lang = data.language || 'urdu';
 
         setCurrentResponse(replyText);
         setCurrentRomanResponse(romanText);
@@ -378,11 +467,11 @@ export function useJarvisVoice(settings: VoiceSettings) {
           }
         }
 
-        // Resume continuous listening if active
+        // Resume continuous listening if enabled and mic is active
         if (continuousRef.current && isMicActive) {
           setTimeout(() => {
             if (continuousRef.current && isMicActive && !isSpeakingRef.current) {
-              startSpeechRecognition();
+              startSpeechRecognitionRef.current?.();
             }
           }, 350);
         } else {
@@ -390,9 +479,10 @@ export function useJarvisVoice(settings: VoiceSettings) {
         }
       } catch (err: any) {
         console.error('sendMessage failed:', err);
-        const fallbackReply = 'My computational link encountered a latency spike, sir. Standing by for your directive.';
+        const fallbackReply = 'معذرت، رابطہ قائم کرنے میں تاخیر ہوئی۔ میں آپ کے حکم کا منتظر ہوں۔';
+        const fallbackRoman = 'Maazrat, rabta qayam karne mein takheer hui. Main aap ke hukam ka muntazir hoon.';
         setCurrentResponse(fallbackReply);
-        setCurrentRomanResponse(fallbackReply);
+        setCurrentRomanResponse(fallbackRoman);
 
         setMessages((prev) => [
           ...prev,
@@ -400,12 +490,14 @@ export function useJarvisVoice(settings: VoiceSettings) {
             id: `msg-${Date.now()}-jarvis`,
             role: 'assistant',
             text: fallbackReply,
+            romanText: fallbackRoman,
+            language: 'urdu',
             timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           },
         ]);
 
         if (!isMuted) {
-          await speakWithBrowser(fallbackReply, fallbackReply, 'english');
+          await speakWithBrowser(fallbackReply, fallbackRoman, 'urdu');
         }
         setState('idle');
       } finally {
@@ -417,9 +509,7 @@ export function useJarvisVoice(settings: VoiceSettings) {
 
   // Start Speech Recognition
   const startSpeechRecognition = useCallback(async () => {
-    if (isSpeakingRef.current) {
-      stopSpeaking();
-    }
+    startSpeechRecognitionRef.current = startSpeechRecognition;
 
     setState('connecting');
     const micGranted = await setupMicStream();
@@ -444,9 +534,14 @@ export function useJarvisVoice(settings: VoiceSettings) {
         recognition.continuous = true;
         recognition.interimResults = true;
 
-        // Set recognition language: ur-PK understands Urdu and Roman Urdu; en-US for English
+        // Set recognition language: ur-PK for Urdu/Roman Urdu, en-US for English
         const activeLangMode = languageModeRef.current;
-        recognition.lang = activeLangMode === 'en-US' ? 'en-US' : 'ur-PK';
+        if (activeLangMode === 'en-US') {
+          recognition.lang = 'en-US';
+        } else {
+          // Default to Pakistani Urdu for accurate speech recognition
+          recognition.lang = 'ur-PK';
+        }
         recognition.maxAlternatives = 1;
 
         recognition.onstart = () => {
@@ -476,19 +571,20 @@ export function useJarvisVoice(settings: VoiceSettings) {
           const currentSpeech = final || interim;
           setInterimTranscript(currentSpeech);
 
-          // Fast response: 650ms silence triggers auto-dispatch
           if (currentSpeech.trim().length > 1) {
             if (silenceTimerRef.current) {
               clearTimeout(silenceTimerRef.current);
             }
 
+            // If we have a final chunk, 500ms delay; for interim, 1100ms of silence
+            const delayMs = final.trim().length > 0 ? 500 : 1100;
             silenceTimerRef.current = setTimeout(() => {
-              const queryToSend = currentSpeech.trim();
+              const queryToSend = (final || currentSpeech).trim();
               setInterimTranscript('');
               if (queryToSend) {
                 sendMessage(queryToSend);
               }
-            }, 650);
+            }, delayMs);
           }
         };
 
@@ -498,6 +594,8 @@ export function useJarvisVoice(settings: VoiceSettings) {
             setIsMicActive(false);
             setState('error');
             setErrorMessage('Microphone access denied. Please click the site settings / address bar icon to allow microphone access.');
+          } else if (event.error === 'no-speech') {
+            // Natural silence; don't set error
           }
         };
 
@@ -519,19 +617,21 @@ export function useJarvisVoice(settings: VoiceSettings) {
       }
     }
 
-    // MediaRecorder fallback
+    // MediaRecorder fallback for browsers without SpeechRecognition
     if (micStreamRef.current && typeof MediaRecorder !== 'undefined') {
       try {
-        recordedAudioChunksRef.current = [];
         const recorder = new MediaRecorder(micStreamRef.current);
+        const recordedChunks: Blob[] = [];
+
         recorder.ondataavailable = (e) => {
           if (e.data.size > 0) {
-            recordedAudioChunksRef.current.push(e.data);
+            recordedChunks.push(e.data);
           }
         };
+
         recorder.onstop = async () => {
-          if (recordedAudioChunksRef.current.length > 0) {
-            const audioBlob = new Blob(recordedAudioChunksRef.current, { type: 'audio/webm' });
+          if (recordedChunks.length > 0) {
+            const audioBlob = new Blob(recordedChunks, { type: 'audio/webm' });
             const reader = new FileReader();
             reader.onloadend = async () => {
               const base64Audio = (reader.result as string)?.split(',')[1];
@@ -555,8 +655,7 @@ export function useJarvisVoice(settings: VoiceSettings) {
           }
         };
 
-        mediaRecorderRef.current = recorder;
-        recorder.start(200);
+        recorder.start(250);
         setIsMicActive(true);
         setState('listening');
         soundFx.playListening();
@@ -566,7 +665,7 @@ export function useJarvisVoice(settings: VoiceSettings) {
         setErrorMessage('Unable to initialize voice recording in this browser.');
       }
     }
-  }, [setupMicStream, sendMessage, stopSpeaking]);
+  }, [setupMicStream, sendMessage]);
 
   const stopSpeechRecognition = useCallback(() => {
     setIsMicActive(false);
@@ -583,14 +682,6 @@ export function useJarvisVoice(settings: VoiceSettings) {
       }
     }
 
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch {
-        // ignore
-      }
-    }
-
     if (state === 'listening' || state === 'connecting') {
       setState('idle');
       soundFx.playStandby();
@@ -602,9 +693,12 @@ export function useJarvisVoice(settings: VoiceSettings) {
     if (isMicActive) {
       stopSpeechRecognition();
     } else {
+      if (isSpeakingRef.current) {
+        stopSpeaking();
+      }
       startSpeechRecognition();
     }
-  }, [isMicActive, startSpeechRecognition, stopSpeechRecognition]);
+  }, [isMicActive, startSpeechRecognition, stopSpeechRecognition, stopSpeaking]);
 
   const toggleMute = useCallback(() => {
     soundFx.playClick();
@@ -617,47 +711,65 @@ export function useJarvisVoice(settings: VoiceSettings) {
     });
   }, [stopSpeaking]);
 
-  // Startup Jarvis
+  // Startup Jarvis with natural Pakistani Urdu greeting
   const startJarvis = useCallback(async () => {
     await ensureAudioContext();
     soundFx.playStartup();
 
     setState('idle');
-    const welcome = "All systems operational, sir. Acoustic channels and speech synthesis online. How may I assist you today?";
+    const welcome = 'السلام علیکم! تمام سسٹمز فعال ہیں۔ فرمائیے، میں آپ کی کیا مدد کر سکتا ہوں؟';
+    const welcomeRoman = 'Assalam-o-Alaikum! Tamaam systems faal hain. Farmayiye, main aap ki kya madad kar sakta hoon?';
+
     setCurrentResponse(welcome);
-    setCurrentRomanResponse(welcome);
-    setCurrentLanguage('english');
+    setCurrentRomanResponse(welcomeRoman);
+    setCurrentLanguage('urdu');
 
     const welcomeMsg: ChatMessage = {
       id: `msg-${Date.now()}-welcome`,
       role: 'assistant',
       text: welcome,
-      romanText: welcome,
-      language: 'english',
+      romanText: welcomeRoman,
+      language: 'urdu',
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
     };
     setMessages([welcomeMsg]);
 
     await setupMicStream();
 
+    // Play welcome speech aloud and wait for it to complete
     if (!isMuted) {
+      let playedAudio = false;
       try {
         const res = await fetch('/api/tts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: welcome, voiceName: settings.voiceName, language: 'english' }),
+          body: JSON.stringify({
+            text: welcome,
+            voiceName: settings.voiceName || 'Kore',
+            language: 'urdu',
+          }),
         });
         if (res.ok) {
           const data = await res.json();
           if (data.audioData) {
+            playedAudio = true;
             await playAudioData(data.audioData);
-            return;
           }
         }
-      } catch {
-        // fallback
+      } catch (e) {
+        console.warn('Startup TTS request notice:', e);
       }
-      await speakWithBrowser(welcome, welcome, 'english');
+
+      if (!playedAudio) {
+        await speakWithBrowser(welcome, welcomeRoman, 'urdu');
+      }
+    }
+
+    // Auto-engage continuous listening after welcome audio finishes
+    if (continuousRef.current) {
+      setTimeout(() => {
+        startSpeechRecognitionRef.current?.();
+      }, 350);
     }
   }, [ensureAudioContext, setupMicStream, settings.voiceName, isMuted, playAudioData, speakWithBrowser]);
 
@@ -666,13 +778,13 @@ export function useJarvisVoice(settings: VoiceSettings) {
     const interval = setInterval(() => {
       setTelemetry((prev) => ({
         ...prev,
-        cpu: Math.floor(24 + Math.random() * 14),
+        cpu: Math.floor(22 + Math.random() * 12),
         neuralLoad:
           state === 'processing'
             ? 88 + Math.floor(Math.random() * 8)
             : state === 'speaking'
             ? 58 + Math.floor(Math.random() * 12)
-            : 30 + Math.floor(Math.random() * 8),
+            : 28 + Math.floor(Math.random() * 8),
         frequencyHz:
           state === 'speaking'
             ? 440 + Math.floor(Math.random() * 400)
